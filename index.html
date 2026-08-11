@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Castaway — Layer 1: Island + Locomotion</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1622; font-family: -apple-system, system-ui, sans-serif; }
+  #app { position: relative; width: 100%; height: 100%; }
+  canvas { display: block; }
+
+  #overlay {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 18px;
+    background: radial-gradient(ellipse at center, rgba(11,22,34,0.55) 0%, rgba(6,12,20,0.92) 75%);
+    color: #eef3f7; text-align: center; padding: 24px; box-sizing: border-box;
+  }
+  #overlay h1 { font-size: clamp(22px, 4vw, 34px); margin: 0; letter-spacing: 0.5px; font-weight: 700; }
+  #overlay p { max-width: 480px; margin: 0; color: #b7c4d0; line-height: 1.5; font-size: 14px; }
+  #vrBtn {
+    padding: 14px 30px; font-size: 16px; font-weight: 600; letter-spacing: 0.3px;
+    border-radius: 999px; border: none; cursor: pointer;
+    background: linear-gradient(135deg, #ff9f4a, #e2683b); color: #1a0f08;
+    box-shadow: 0 8px 24px rgba(226,104,59,0.35);
+  }
+  #vrBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+  #vrBtn:active { transform: translateY(1px); }
+  #hint { font-size: 12px; color: #7f8fa0; }
+
+  #hud {
+    position: absolute; top: 14px; left: 14px; padding: 8px 12px;
+    background: rgba(10,16,24,0.55); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px; color: #cfe3ef; font-size: 12px; line-height: 1.5;
+    pointer-events: none; display: none;
+  }
+  #hud.show { display: block; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="overlay">
+    <h1>🏝 Castaway — Layer 1</h1>
+    <p>Small procedurally generated island. Gorilla-style arm-swing locomotion in VR — squeeze the grips and swing your arms to move. On desktop, use WASD + drag to look around and preview the island before putting on the headset.</p>
+    <button id="vrBtn" disabled>Checking WebXR…</button>
+    <div id="hint">Best viewed in the Meta Quest Browser</div>
+  </div>
+  <div id="hud">
+    WASD move · Drag look · Space jump<br/>
+    (Desktop preview — put on headset for real locomotion)
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from "three";
+
+/* ---------------------------------------------------------
+   SCENE / RENDERER
+--------------------------------------------------------- */
+const app = document.getElementById("app");
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x9fd8ff);
+scene.fog = new THREE.FogExp2(0xbfe6ff, 0.012);
+
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 500);
+
+// The "rig" is what actually moves through the world. The camera (headset)
+// and controllers are children of it, so moving the rig moves the whole player.
+const rig = new THREE.Group();
+rig.add(camera);
+scene.add(rig);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.xr.enabled = true;
+renderer.shadowMap.enabled = true;
+app.appendChild(renderer.domElement);
+
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+/* ---------------------------------------------------------
+   LIGHTING
+--------------------------------------------------------- */
+const hemi = new THREE.HemisphereLight(0xbfe3ff, 0x3a2f1e, 0.9);
+scene.add(hemi);
+
+const sun = new THREE.DirectionalLight(0xfff2d6, 1.4);
+sun.position.set(40, 60, -20);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -60;
+sun.shadow.camera.right = 60;
+sun.shadow.camera.top = 60;
+sun.shadow.camera.bottom = -60;
+sun.shadow.camera.far = 200;
+scene.add(sun);
+
+/* ---------------------------------------------------------
+   TINY NOISE (value noise, no deps) — enough to sculpt an island
+--------------------------------------------------------- */
+function hash(x, y) {
+  const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453123;
+  return s - Math.floor(s);
+}
+function noise2D(x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y);
+  const xf = x - xi, yf = y - yi;
+  const a = hash(xi, yi), b = hash(xi + 1, yi);
+  const c = hash(xi, yi + 1), d = hash(xi + 1, yi + 1);
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+function fbm(x, y, octaves = 4) {
+  let total = 0, amp = 0.5, freq = 1, max = 0;
+  for (let i = 0; i < octaves; i++) {
+    total += noise2D(x * freq, y * freq) * amp;
+    max += amp;
+    amp *= 0.5;
+    freq *= 2;
+  }
+  return total / max;
+}
+
+// Deterministic seed so the same island generates each run of this build
+const SEED = 1337;
+function seededRand(i) {
+  return hash(SEED + i * 0.618, SEED - i * 0.381);
+}
+
+/* ---------------------------------------------------------
+   ISLAND TERRAIN
+--------------------------------------------------------- */
+const ISLAND_RADIUS = 45;
+const SEA_LEVEL = 0;
+
+const segs = 140;
+const groundGeo = new THREE.PlaneGeometry(ISLAND_RADIUS * 2.4, ISLAND_RADIUS * 2.4, segs, segs);
+groundGeo.rotateX(-Math.PI / 2);
+
+const pos = groundGeo.attributes.position;
+const colors = [];
+const sandColor = new THREE.Color(0xE8D3A0);
+const grassColor = new THREE.Color(0x5C8A4A);
+const rockColor = new THREE.Color(0x8A7F72);
+const deepGrass = new THREE.Color(0x3E6B34);
+
+for (let i = 0; i < pos.count; i++) {
+  const x = pos.getX(i);
+  const z = pos.getZ(i);
+  const dist = Math.sqrt(x * x + z * z);
+
+  // radial falloff so the land forms a rounded island, not a square
+  const falloff = THREE.MathUtils.clamp(1 - dist / ISLAND_RADIUS, -1, 1);
+  const shaped = Math.pow(Math.max(falloff, 0), 1.3);
+
+  const n = fbm(x * 0.045, z * 0.045, 5);
+  let height = (n * 10 - 2) * shaped;
+
+  // gentle beach ring near the shoreline
+  if (dist > ISLAND_RADIUS * 0.72 && dist < ISLAND_RADIUS * 1.05) {
+    const beachT = THREE.MathUtils.smoothstep(dist, ISLAND_RADIUS * 0.72, ISLAND_RADIUS * 1.0);
+    height = THREE.MathUtils.lerp(height, -0.4, beachT * 0.8);
+  }
+  if (dist >= ISLAND_RADIUS * 1.05) {
+    height = -3 - (dist - ISLAND_RADIUS) * 0.15; // seabed drops away
+  }
+
+  pos.setY(i, height);
+
+  // vertex color by height/slope for a simple painted-terrain look
+  let c;
+  if (height < -0.15) c = sandColor;
+  else if (height < 2.2) c = grassColor;
+  else if (height < 5.5) c = deepGrass;
+  else c = rockColor;
+
+  colors.push(c.r, c.g, c.b);
+}
+groundGeo.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+groundGeo.computeVertexNormals();
+
+const groundMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
+const ground = new THREE.Mesh(groundGeo, groundMat);
+ground.receiveShadow = true;
+scene.add(ground);
+
+// height sampling for placing objects + player start height
+function terrainHeightAt(x, z) {
+  const dist = Math.sqrt(x * x + z * z);
+  const falloff = THREE.MathUtils.clamp(1 - dist / ISLAND_RADIUS, -1, 1);
+  const shaped = Math.pow(Math.max(falloff, 0), 1.3);
+  const n = fbm(x * 0.045, z * 0.045, 5);
+  let height = (n * 10 - 2) * shaped;
+  if (dist > ISLAND_RADIUS * 0.72 && dist < ISLAND_RADIUS * 1.05) {
+    const beachT = THREE.MathUtils.smoothstep(dist, ISLAND_RADIUS * 0.72, ISLAND_RADIUS * 1.0);
+    height = THREE.MathUtils.lerp(height, -0.4, beachT * 0.8);
+  }
+  if (dist >= ISLAND_RADIUS * 1.05) height = -3;
+  return height;
+}
+
+/* ---------------------------------------------------------
+   WATER
+--------------------------------------------------------- */
+const waterGeo = new THREE.PlaneGeometry(400, 400);
+waterGeo.rotateX(-Math.PI / 2);
+const waterMat = new THREE.MeshStandardMaterial({
+  color: 0x2c86c9, transparent: true, opacity: 0.82, roughness: 0.25, metalness: 0.1
+});
+const water = new THREE.Mesh(waterGeo, waterMat);
+water.position.y = SEA_LEVEL;
+scene.add(water);
+
+/* ---------------------------------------------------------
+   SIMPLE VEGETATION (visual only in Layer 1 — no gathering yet)
+--------------------------------------------------------- */
+function makeTree(scale = 1) {
+  const g = new THREE.Group();
+  const trunkH = 1.6 * scale;
+  const trunk = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.08 * scale, 0.13 * scale, trunkH, 6),
+    new THREE.MeshStandardMaterial({ color: 0x6b4a30, roughness: 1 })
+  );
+  trunk.position.y = trunkH / 2;
+  trunk.castShadow = true;
+  g.add(trunk);
+
+  const leaves = new THREE.Mesh(
+    new THREE.ConeGeometry(0.9 * scale, 1.8 * scale, 8),
+    new THREE.MeshStandardMaterial({ color: 0x2f6b3a, roughness: 1 })
+  );
+  leaves.position.y = trunkH + 0.7 * scale;
+  leaves.castShadow = true;
+  g.add(leaves);
+  return g;
+}
+
+function makeRock(scale = 1) {
+  const rock = new THREE.Mesh(
+    new THREE.DodecahedronGeometry(0.35 * scale, 0),
+    new THREE.MeshStandardMaterial({ color: 0x8a8378, roughness: 1, flatShading: true })
+  );
+  rock.castShadow = true;
+  rock.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
+  return rock;
+}
+
+const vegetation = new THREE.Group();
+scene.add(vegetation);
+
+const PLACEMENT_COUNT = 160;
+for (let i = 0; i < PLACEMENT_COUNT; i++) {
+  const angle = seededRand(i) * Math.PI * 2;
+  const r = seededRand(i + 500) * ISLAND_RADIUS * 0.85;
+  const x = Math.cos(angle) * r;
+  const z = Math.sin(angle) * r;
+  const h = terrainHeightAt(x, z);
+  if (h < 0.1) continue; // skip beach/water
+
+  const roll = seededRand(i + 999);
+  let obj;
+  if (roll < 0.55) obj = makeTree(0.8 + seededRand(i + 111) * 0.9);
+  else if (roll < 0.8) obj = makeTree(1.6 + seededRand(i + 222) * 0.6); // occasional big tree
+  else obj = makeRock(0.6 + seededRand(i + 333) * 1.2);
+
+  obj.position.set(x, h, z);
+  vegetation.add(obj);
+}
+
+/* ---------------------------------------------------------
+   PLAYER START
+--------------------------------------------------------- */
+const startHeight = terrainHeightAt(0, 12);
+rig.position.set(0, startHeight, 12);
+camera.position.set(0, 1.65, 0); // eye height above the rig for desktop preview
+
+/* ---------------------------------------------------------
+   VR CONTROLLERS + GORILLA-STYLE ARM-SWING LOCOMOTION
+--------------------------------------------------------- */
+const controllerState = [
+  { squeezing: false, prevLocal: new THREE.Vector3() },
+  { squeezing: false, prevLocal: new THREE.Vector3() }
+];
+
+function buildControllerVisual() {
+  const geo = new THREE.CylinderGeometry(0.015, 0.02, 0.12, 8);
+  geo.rotateX(Math.PI / 2);
+  const mat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+  return new THREE.Mesh(geo, mat);
+}
+
+for (let i = 0; i < 2; i++) {
+  const controller = renderer.xr.getController(i);
+  controller.userData.index = i;
+  controller.addEventListener("squeezestart", () => {
+    controllerState[i].squeezing = true;
+    controllerState[i].prevLocal.copy(controller.position);
+  });
+  controller.addEventListener("squeezeend", () => {
+    controllerState[i].squeezing = false;
+  });
+  rig.add(controller);
+
+  const grip = renderer.xr.getControllerGrip(i);
+  grip.add(buildControllerVisual());
+  rig.add(grip);
+}
+
+function hapticPulse(controllerIndex, intensity, durationMs) {
+  const session = renderer.xr.getSession();
+  if (!session) return;
+  for (const src of session.inputSources) {
+    if (src.handedness === (controllerIndex === 0 ? "left" : "right") && src.gamepad?.hapticActuators?.length) {
+      src.gamepad.hapticActuators[0].pulse(intensity, durationMs);
+    }
+  }
+}
+
+const tmpDeltaLocal = new THREE.Vector3();
+const tmpDeltaWorld = new THREE.Vector3();
+let hapticCooldown = [0, 0];
+
+function updateArmSwingLocomotion(dt) {
+  for (let i = 0; i < 2; i++) {
+    const state = controllerState[i];
+    if (!state.squeezing) continue;
+    const controller = renderer.xr.getController(i);
+
+    tmpDeltaLocal.copy(controller.position).sub(state.prevLocal);
+    const speed = tmpDeltaLocal.length();
+
+    if (speed > 0.0004) {
+      // move the rig opposite to hand travel, like pulling yourself through space
+      tmpDeltaWorld.copy(tmpDeltaLocal).applyQuaternion(rig.quaternion);
+      rig.position.sub(tmpDeltaWorld.multiplyScalar(2.1)); // arm-swing gain
+
+      hapticCooldown[i] -= dt;
+      if (hapticCooldown[i] <= 0) {
+        hapticPulse(i, 0.25, 25); // small, sharp pulse per swing
+        hapticCooldown[i] = 0.06;
+      }
+    }
+    state.prevLocal.copy(controller.position);
+  }
+}
+
+/* ---------------------------------------------------------
+   DESKTOP PREVIEW CONTROLS (WASD + drag look + space jump)
+   This is a stand-in so the island can be tested before VR;
+   it is not part of the in-headset locomotion design.
+--------------------------------------------------------- */
+const keys = {};
+window.addEventListener("keydown", (e) => (keys[e.code] = true));
+window.addEventListener("keyup", (e) => (keys[e.code] = false));
+
+let yaw = Math.PI; // face back toward the island from the start position
+let pitch = 0;
+let dragging = false;
+let lastX = 0, lastY = 0;
+
+renderer.domElement.addEventListener("pointerdown", (e) => {
+  dragging = true; lastX = e.clientX; lastY = e.clientY;
+});
+window.addEventListener("pointerup", () => (dragging = false));
+window.addEventListener("pointermove", (e) => {
+  if (!dragging || renderer.xr.isPresenting) return;
+  const dx = e.clientX - lastX, dy = e.clientY - lastY;
+  lastX = e.clientX; lastY = e.clientY;
+  yaw -= dx * 0.0035;
+  pitch = THREE.MathUtils.clamp(pitch - dy * 0.0035, -1.3, 1.3);
+});
+
+let vSpeed = 0;
+const GRAVITY = -18;
+
+function updateDesktopPreview(dt) {
+  if (renderer.xr.isPresenting) return;
+
+  camera.rotation.set(pitch, yaw, 0, "YXZ");
+
+  const forward = new THREE.Vector3(Math.sin(yaw) * -1, 0, Math.cos(yaw) * -1);
+  const right = new THREE.Vector3(forward.z, 0, -forward.x);
+  const moveSpeed = keys["ShiftLeft"] ? 8 : 4.5;
+
+  const move = new THREE.Vector3();
+  if (keys["KeyW"]) move.add(forward);
+  if (keys["KeyS"]) move.sub(forward);
+  if (keys["KeyD"]) move.add(right);
+  if (keys["KeyA"]) move.sub(right);
+  if (move.lengthSq() > 0) {
+    move.normalize().multiplyScalar(moveSpeed * dt);
+    rig.position.add(move);
+  }
+
+  const groundH = terrainHeightAt(rig.position.x, rig.position.z);
+  const feetY = rig.position.y;
+  const grounded = feetY <= groundH + 0.02;
+
+  if (grounded) {
+    vSpeed = 0;
+    rig.position.y = groundH;
+    if (keys["Space"]) vSpeed = 6.5;
+  } else {
+    vSpeed += GRAVITY * dt;
+  }
+  rig.position.y += vSpeed * dt;
+  if (rig.position.y < groundH) rig.position.y = groundH;
+}
+
+/* ---------------------------------------------------------
+   VR SESSION SETUP
+--------------------------------------------------------- */
+const overlay = document.getElementById("overlay");
+const vrBtn = document.getElementById("vrBtn");
+const hud = document.getElementById("hud");
+
+async function initVRButton() {
+  if (!navigator.xr) {
+    vrBtn.textContent = "WebXR not available in this browser";
+    return;
+  }
+  const supported = await navigator.xr.isSessionSupported("immersive-vr");
+  if (!supported) {
+    vrBtn.textContent = "Headset not detected — previewing on desktop";
+    hud.classList.add("show");
+    overlay.style.pointerEvents = "none";
+    overlay.style.background = "transparent";
+    overlay.querySelector("h1").style.display = "none";
+    overlay.querySelector("p").style.display = "none";
+    overlay.querySelector("#hint").style.display = "none";
+    vrBtn.style.display = "none";
+    return;
+  }
+  vrBtn.disabled = false;
+  vrBtn.textContent = "Enter VR";
+}
+
+vrBtn.addEventListener("click", async () => {
+  const session = await navigator.xr.requestSession("immersive-vr", {
+    optionalFeatures: ["local-floor", "bounded-floor"]
+  });
+  renderer.xr.setReferenceSpaceType("local-floor");
+  await renderer.xr.setSession(session);
+  overlay.style.display = "none";
+  session.addEventListener("end", () => {
+    overlay.style.display = "flex";
+  });
+});
+
+initVRButton();
+
+/* ---------------------------------------------------------
+   RENDER LOOP
+--------------------------------------------------------- */
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05);
+
+  if (renderer.xr.isPresenting) {
+    updateArmSwingLocomotion(dt);
+  } else {
+    updateDesktopPreview(dt);
+  }
+
+  const t = clock.elapsedTime;
+  water.position.y = SEA_LEVEL + Math.sin(t * 0.6) * 0.03;
+
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>
