@@ -1,0 +1,1166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0d0605">
+<title>Five Finger Fillet</title>
+<style>
+  /* Layout: full-bleed canvas table, thin HUD on top, modal cards for menu and game over. Single committed dark look. */
+  :root {
+    color-scheme: dark;
+    --bg: #0d0605;
+    --ink: #f1e6dc;
+    --ink-dim: #a99a8f;
+    --blood: #b3121a;
+    --blood-deep: #5e070b;
+    --steel: #c9d1d6;
+    --card: rgba(18, 10, 8, 0.88);
+    --line: rgba(255, 255, 255, 0.10);
+    --display: Impact, Haettenschweiler, "Arial Narrow Bold", "Franklin Gothic Heavy", sans-serif;
+    --body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--ink); font-family: var(--body); }
+  body { position: fixed; inset: 0; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: none; -webkit-tap-highlight-color: transparent; }
+  #stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; background: var(--bg); touch-action: none; }
+
+  #hud { position: fixed; left: 0; right: 0; top: 0; padding: calc(env(safe-area-inset-top, 0px) + 10px) 16px 0; display: none; align-items: flex-start; justify-content: space-between; gap: 12px; pointer-events: none; }
+  #hud.show { display: flex; }
+  .vit { flex: 1 1 0; min-width: 0; max-width: 150px; }
+  .vit label { display: block; font: 700 10px/1 var(--body); letter-spacing: .18em; color: var(--ink-dim); text-transform: uppercase; margin-bottom: 5px; }
+  .bar { height: 10px; border-radius: 6px; background: rgba(0,0,0,.55); border: 1px solid var(--line); overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,.7); }
+  .bar i { display: block; height: 100%; width: 100%; background: linear-gradient(180deg, #d4222b, #7d0a10); transform-origin: left center; transition: transform .25s ease-out; }
+  .vit.low .bar i { animation: throb .55s infinite alternate; }
+  @keyframes throb { from { filter: brightness(1); } to { filter: brightness(1.7); } }
+  .scoreBox { flex: 0 0 auto; text-align: center; }
+  #score { font: 400 52px/0.95 var(--display); letter-spacing: .02em; text-shadow: 0 2px 0 #000, 0 0 18px rgba(179,18,26,.55); font-variant-numeric: tabular-nums; }
+  #best { font: 700 10px/1 var(--body); letter-spacing: .18em; color: var(--ink-dim); text-transform: uppercase; margin-top: 4px; }
+  #combo { height: 16px; margin-top: 4px; font: 400 15px/16px var(--display); letter-spacing: .08em; color: #ff8a5c; text-shadow: 0 1px 0 #000; }
+  .tools { flex: 1 1 0; display: flex; justify-content: flex-end; max-width: 150px; pointer-events: auto; }
+  .tools button { width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--line); background: rgba(0,0,0,.5); color: var(--ink); font-size: 16px; cursor: pointer; display: grid; place-items: center; padding: 0; }
+  .tools button:focus-visible, .btn:focus-visible, .chip:focus-visible { outline: 2px solid var(--steel); outline-offset: 2px; }
+
+  .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; padding: calc(env(safe-area-inset-top, 0px) + 20px) 20px calc(env(safe-area-inset-bottom, 0px) + 20px); box-sizing: border-box; background: radial-gradient(ellipse at 50% 45%, rgba(8,3,2,.55) 0%, rgba(8,3,2,.9) 80%); }
+  .screen.show { display: flex; }
+  .card { width: 100%; max-width: 380px; box-sizing: border-box; padding: 26px 22px 20px; text-align: center; background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.7); position: relative; overflow: hidden; }
+  .card::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 6px; background: var(--blood); }
+  .card::after { content: ""; position: absolute; left: 0; right: 0; top: 6px; height: 34px; pointer-events: none; opacity: .95;
+    background:
+      radial-gradient(6px 18px at 8% 0, var(--blood) 98%, transparent) 0 0 / 100% 100% no-repeat,
+      radial-gradient(5px 30px at 21% 0, var(--blood) 98%, transparent) 0 0 / 100% 100% no-repeat,
+      radial-gradient(7px 12px at 37% 0, var(--blood) 98%, transparent) 0 0 / 100% 100% no-repeat,
+      radial-gradient(5px 24px at 58% 0, var(--blood) 98%, transparent) 0 0 / 100% 100% no-repeat,
+      radial-gradient(6px 16px at 74% 0, var(--blood) 98%, transparent) 0 0 / 100% 100% no-repeat,
+      radial-gradient(5px 34px at 91% 0, var(--blood) 98%, transparent) 0 0 / 100% 100% no-repeat; }
+  .kicker { font: 700 11px/1 var(--body); letter-spacing: .24em; color: var(--blood); text-transform: uppercase; margin: 18px 0 8px; }
+  h1 { margin: 0; font: 400 clamp(38px, 12vw, 54px)/0.92 var(--display); letter-spacing: .015em; text-transform: uppercase; text-wrap: balance; text-shadow: 0 3px 0 #000; }
+  h1 em { font-style: normal; color: var(--blood); }
+  .lede { margin: 14px auto 0; max-width: 300px; font-size: 14px; line-height: 1.5; color: var(--ink-dim); }
+  .rules { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 8px; text-align: left; }
+  .rules li { display: grid; grid-template-columns: 22px 1fr; gap: 10px; font-size: 13px; line-height: 1.4; color: var(--ink); }
+  .rules b { font: 400 17px/1 var(--display); color: var(--blood); text-align: center; }
+  .btn { display: block; width: 100%; margin-top: 20px; padding: 15px 18px; border: 0; border-radius: 10px; cursor: pointer; font: 400 22px/1 var(--display); letter-spacing: .08em; text-transform: uppercase; color: #fff; background: linear-gradient(180deg, #c8161f, #86090f); box-shadow: 0 6px 0 #3d0306, 0 14px 28px rgba(179,18,26,.35); }
+  .btn:active { transform: translateY(3px); box-shadow: 0 3px 0 #3d0306; }
+  .row { display: flex; gap: 8px; justify-content: center; margin-top: 14px; flex-wrap: wrap; }
+  .chip { padding: 8px 12px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255,255,255,.04); color: var(--ink); font: 600 12px/1 var(--body); cursor: pointer; }
+  .chip[aria-pressed="true"] { border-color: rgba(179,18,26,.8); background: rgba(179,18,26,.18); }
+  .fine { margin: 14px 0 0; font-size: 11px; line-height: 1.45; color: var(--ink-dim); }
+  .stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 18px; }
+  .stat { padding: 10px 4px; border-radius: 8px; background: rgba(255,255,255,.04); border: 1px solid var(--line); }
+  .stat b { display: block; font: 400 28px/1 var(--display); font-variant-numeric: tabular-nums; }
+  .stat span { display: block; margin-top: 4px; font: 700 9px/1 var(--body); letter-spacing: .16em; text-transform: uppercase; color: var(--ink-dim); }
+  .verdict { margin: 12px 0 0; font-size: 14px; color: var(--ink-dim); }
+  @media (max-height: 640px) { .rules { display: none; } .card { padding-top: 22px; } }
+  @media (prefers-reduced-motion: reduce) { .vit.low .bar i { animation: none; } .bar i { transition: none; } }
+</style>
+</head>
+<body>
+<canvas id="stage" aria-label="Five Finger Fillet game table"></canvas>
+
+<div id="hud">
+  <div class="vit" id="vit"><label for="barfill">Blood</label><div class="bar"><i id="barfill"></i></div></div>
+  <div class="scoreBox"><div id="score">0</div><div id="best">Best 0</div><div id="combo"></div></div>
+  <div class="tools"><button id="mute" type="button" aria-label="Sound on" title="Sound">&#128266;</button></div>
+</div>
+
+<div class="screen show" id="menu">
+  <div class="card">
+    <div class="kicker">17+ &middot; simulated blood</div>
+    <h1>Five Finger <em>Fillet</em></h1>
+    <p class="lede">The knife game, on your thumb. A blade sweeps across your spread hand. Stab the table between your fingers.</p>
+    <ul class="rules">
+      <li><b>1</b><span>Tap anywhere to drive the knife into the board where the tip is.</span></li>
+      <li><b>2</b><span>Land in a gap to score. Closer to the skin pays more.</span></li>
+      <li><b>3</b><span>Hit a finger and you bleed. Lose it all and you pass out.</span></li>
+    </ul>
+    <button class="btn" id="startBtn" type="button">Start</button>
+    <div class="row">
+      <button class="chip" id="bloodChip" type="button" aria-pressed="true">Blood: on</button>
+    </div>
+    <p class="fine">Fiction. Never try this with a real knife.</p>
+  </div>
+</div>
+
+<div class="screen" id="over">
+  <div class="card">
+    <div class="kicker" id="overKicker">Game over</div>
+    <h1 id="overTitle">You passed <em>out</em></h1>
+    <div class="stats">
+      <div class="stat"><b id="oScore">0</b><span>Score</span></div>
+      <div class="stat"><b id="oStabs">0</b><span>Clean stabs</span></div>
+      <div class="stat"><b id="oCuts">0</b><span>Cuts</span></div>
+    </div>
+    <p class="verdict" id="oVerdict"></p>
+    <button class="btn" id="retryBtn" type="button">Try again</button>
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+/* =========================================================================
+   Five Finger Fillet
+   World is 400 x 760 units, hand is lying flat on a wooden board, seen from
+   above. Everything is drawn procedurally. Audio is synthesised.
+   ========================================================================= */
+
+const W = 400, H = 760;
+const DEG = Math.PI / 180;
+const DEBUG = /[?&]debug/.test(location.search);
+
+const $ = id => document.getElementById(id);
+const canvas = $('stage');
+const ctx = canvas.getContext('2d');
+
+let dpr = 1, cw = 0, ch = 0, scale = 1, ox = 0, oy = 0;
+let wood = null;
+
+/* persistent layers (world resolution x2) */
+const decals = document.createElement('canvas');
+decals.width = W * 2; decals.height = H * 2;
+const dctx = decals.getContext('2d');
+dctx.scale(2, 2);
+
+/* ---------- utils ---------- */
+const rnd = (a = 1, b) => b === undefined ? Math.random() * a : a + Math.random() * (b - a);
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function rrect(c, x, y, w, h, rt, rb) {
+  rb = rb === undefined ? rt : rb;
+  c.beginPath();
+  c.moveTo(x + rt, y); c.lineTo(x + w - rt, y); c.quadraticCurveTo(x + w, y, x + w, y + rt);
+  c.lineTo(x + w, y + h - rb); c.quadraticCurveTo(x + w, y + h, x + w - rb, y + h);
+  c.lineTo(x + rb, y + h); c.quadraticCurveTo(x, y + h, x, y + h - rb);
+  c.lineTo(x, y + rt); c.quadraticCurveTo(x, y, x + rt, y); c.closePath();
+}
+/* smooth closed curve through points (works on ctx and Path2D) */
+function smooth(c, pts) {
+  const n = pts.length;
+  const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  const m0 = mid(pts[n - 1], pts[0]);
+  c.moveTo(m0[0], m0[1]);
+  for (let i = 0; i < n; i++) {
+    const p = pts[i], m = mid(p, pts[(i + 1) % n]);
+    c.quadraticCurveTo(p[0], p[1], m[0], m[1]);
+  }
+  c.closePath();
+}
+
+/* =========================================================================
+   Game state
+   ========================================================================= */
+const S = {
+  mode: 'menu',          // menu | play | dying | over
+  score: 0, best: 0, combo: 0, health: 100, stabs: 0, cuts: 0,
+  time: 0, rtime: 0, hitStop: 0, shake: 0, flash: 0, dyingT: 0, pulse: 0, beatT: 0,
+  bloodOn: true, muted: false
+};
+try { S.best = +localStorage.getItem('fff_best') || 0; } catch (e) {}
+
+const knife = { phase: 0, gx: 176, gy: 440, h: 0.55, mode: 'aim', t: 0, tx: 0, ty: 0, blood: 0, tilt: 14 * DEG, twang: 0, hit: false, stuckDur: 0.2 };
+const hand = { x: 0, y: 0, vx: 0, vy: 0, trem: [0, 0] };
+
+/* ---------- hand geometry ---------- */
+const FINGERS = [
+  { id: 'thumb',  bx: 126, by: 548, ang: -50, len: 112, r0: 18,   r1: 14.5, joints: [0.45, 0.74] },
+  { id: 'index',  bx: 150, by: 512, ang: -18, len: 140, r0: 15.5, r1: 12.8, joints: [0.38, 0.70] },
+  { id: 'middle', bx: 190, by: 505, ang: -4,  len: 154, r0: 16.5, r1: 13.2, joints: [0.36, 0.69] },
+  { id: 'ring',   bx: 229, by: 510, ang: 10,  len: 140, r0: 15,   r1: 12.2, joints: [0.37, 0.70] },
+  { id: 'pinky',  bx: 264, by: 526, ang: 26,  len: 108, r0: 13,   r1: 10.8, joints: [0.40, 0.72] }
+];
+FINGERS.forEach(f => { f.rot = 0; f.rotV = 0; f.wounds = []; f.hair = []; });
+const PALM = { x0: 128, x1: 278, y0: 518 };
+
+const PALM_PTS = [[128,520],[160,507],[198,502],[236,508],[268,520],[281,560],[277,610],[264,660],[256,720],[252,800],[148,800],[144,720],[136,684],[114,654],[104,612],[112,566]];
+const palmPath = new Path2D(); smooth(palmPath, PALM_PTS);
+
+/* hair on back of hand + proximal fingers (fixed so it doesn't shimmer) */
+const palmHair = [];
+(() => {
+  const r = mulberry(7);
+  const tmp = document.createElement('canvas').getContext('2d');
+  let tries = 0;
+  while (palmHair.length < 110 && tries++ < 4000) {
+    const x = 120 + r() * 160, y = 520 + r() * 190;
+    if (tmp.isPointInPath(palmPath, x, y)) palmHair.push([x, y, (r() - 0.5) * 1.8 + 0.15, 3 + r() * 3.5]);
+  }
+  FINGERS.forEach((f, i) => {
+    for (let k = 0; k < 14; k++) {
+      const s = (0.04 + r() * 0.3) * f.len, u = (r() - 0.5) * f.r0 * 1.2;
+      f.hair.push([u, -s, (r() - 0.5) * 1.4, 2.2 + r() * 2.2]);
+    }
+  });
+})();
+
+function fingerDist(f, px, py) {
+  const a = f.ang * DEG, dx = Math.sin(a), dy = -Math.cos(a), cl = f.len - f.r1;
+  const t = clamp((px - f.bx) * dx + (py - f.by) * dy, 0, cl);
+  const cx = f.bx + dx * t, cy = f.by + dy * t;
+  const r = lerp(f.r0, f.r1, t / cl);
+  return { d: Math.hypot(px - cx, py - cy) - r, cx, cy, t, r };
+}
+function inPalm(px, py) { return px > PALM.x0 && px < PALM.x1 && py > PALM.y0; }
+
+/* =========================================================================
+   Audio (all synthesised)
+   ========================================================================= */
+let ac = null, master = null, noiseBuf = null;
+function audioInit() {
+  if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
+  try {
+    ac = new (window.AudioContext || window.webkitAudioContext)();
+    master = ac.createGain(); master.gain.value = S.muted ? 0 : 0.9; master.connect(ac.destination);
+    noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  } catch (e) { ac = null; }
+}
+function noise(o) {
+  if (!ac || S.muted) return;
+  const now = ac.currentTime + (o.t || 0), dur = o.dur || 0.2, peak = o.peak || 0.4;
+  const src = ac.createBufferSource(); src.buffer = noiseBuf;
+  const f = ac.createBiquadFilter(); f.type = o.type || 'lowpass'; f.Q.value = o.q || 1;
+  f.frequency.setValueAtTime(o.f0 || 1000, now);
+  if (o.f1) f.frequency.exponentialRampToValueAtTime(o.f1, now + dur);
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0.0001, now);
+  g.gain.exponentialRampToValueAtTime(peak, now + (o.att || 0.004));
+  g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+  src.connect(f); f.connect(g); g.connect(master);
+  src.start(now, Math.random() * 1.5); src.stop(now + dur + 0.05);
+}
+function tone(o) {
+  if (!ac || S.muted) return;
+  const now = ac.currentTime + (o.t || 0), dur = o.dur || 0.2, peak = o.peak || 0.4;
+  const osc = ac.createOscillator(); osc.type = o.type || 'sine';
+  osc.frequency.setValueAtTime(o.f0, now);
+  if (o.f1) osc.frequency.exponentialRampToValueAtTime(o.f1, now + dur);
+  let node = osc;
+  if (o.filter) { const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = o.filter; f.Q.value = o.fq || 3; osc.connect(f); node = f; }
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0.0001, now);
+  g.gain.exponentialRampToValueAtTime(peak, now + (o.att || 0.005));
+  g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+  node.connect(g); g.connect(master);
+  osc.start(now); osc.stop(now + dur + 0.05);
+}
+const sfx = {
+  whoosh() { noise({ type: 'bandpass', f0: 500, f1: 2400, q: 0.8, dur: 0.09, peak: 0.12, att: 0.03 }); },
+  thunk() {
+    tone({ f0: 170, f1: 52, dur: 0.16, peak: 0.85 });
+    noise({ type: 'bandpass', f0: 2600, q: 2, dur: 0.045, peak: 0.45 });
+    tone({ f0: 1100, f1: 380, dur: 0.05, type: 'triangle', peak: 0.12 });
+  },
+  twang() { tone({ f0: 330, f1: 300, dur: 0.35, type: 'triangle', peak: 0.07, att: 0.01 }); },
+  squelch() {
+    noise({ type: 'lowpass', f0: 1500, f1: 160, q: 4, dur: 0.38, peak: 0.85 });
+    noise({ type: 'highpass', f0: 3200, dur: 0.06, peak: 0.28 });
+    tone({ f0: 95, f1: 38, dur: 0.28, type: 'sawtooth', peak: 0.3 });
+    noise({ t: 0.12, type: 'bandpass', f0: 700, f1: 260, q: 6, dur: 0.22, peak: 0.28 });
+  },
+  grunt() {
+    tone({ f0: 175, f1: 105, dur: 0.5, type: 'sawtooth', peak: 0.22, filter: 650, fq: 2.2, att: 0.03 });
+    tone({ t: 0.02, f0: 350, f1: 210, dur: 0.4, type: 'sawtooth', peak: 0.07, filter: 1100, fq: 3, att: 0.03 });
+  },
+  ping() { tone({ f0: 1250, dur: 0.18, type: 'sine', peak: 0.1 }); tone({ t: 0.05, f0: 1880, dur: 0.22, type: 'sine', peak: 0.07 }); },
+  close() { tone({ f0: 900, f1: 1500, dur: 0.16, type: 'triangle', peak: 0.13 }); tone({ t: 0.08, f0: 1500, f1: 2100, dur: 0.2, type: 'sine', peak: 0.1 }); },
+  beat() { tone({ f0: 62, f1: 40, dur: 0.14, peak: 0.55 }); tone({ t: 0.17, f0: 55, f1: 38, dur: 0.14, peak: 0.4 }); },
+  faint() { tone({ f0: 120, f1: 38, dur: 1.4, type: 'sine', peak: 0.5, att: 0.08 }); noise({ type: 'lowpass', f0: 600, f1: 80, dur: 1.2, peak: 0.25 }); }
+};
+const buzz = p => { try { if (navigator.vibrate) navigator.vibrate(p); } catch (e) {} };
+
+/* =========================================================================
+   Table texture
+   ========================================================================= */
+function buildWood() {
+  wood = document.createElement('canvas');
+  wood.width = canvas.width; wood.height = canvas.height;
+  const c = wood.getContext('2d'), w = wood.width, h = wood.height;
+  const r = mulberry(1337);
+  const u = Math.max(dpr * scale, 0.8);
+  const pw = Math.round(118 * u);
+  const tones = [[92,58,34],[102,66,38],[84,52,30],[108,71,42],[96,61,36]];
+  const n = Math.ceil(w / pw) + 1;
+  const x0 = (w - pw * n) / 2 + pw * 0.3;
+  for (let i = 0; i < n + 1; i++) {
+    const x = x0 + i * pw, t = tones[(i * 7 + 2) % tones.length];
+    const g = c.createLinearGradient(0, 0, 0, h);
+    const k = 0.9 + r() * 0.2;
+    g.addColorStop(0, `rgb(${t[0] * k | 0},${t[1] * k | 0},${t[2] * k | 0})`);
+    g.addColorStop(0.5, `rgb(${t[0] * k * 1.06 | 0},${t[1] * k * 1.06 | 0},${t[2] * k * 1.06 | 0})`);
+    g.addColorStop(1, `rgb(${t[0] * k * 0.92 | 0},${t[1] * k * 0.92 | 0},${t[2] * k * 0.92 | 0})`);
+    c.fillStyle = g; c.fillRect(x, 0, pw + 1, h);
+    /* grain */
+    const lines = 46;
+    for (let j = 0; j < lines; j++) {
+      const gx = x + r() * pw, amp = 1 + r() * 3.5, fr = 0.002 + r() * 0.004, ph = r() * 6.28;
+      const dark = r() < 0.65;
+      c.strokeStyle = dark ? `rgba(28,14,6,${0.05 + r() * 0.12})` : `rgba(190,130,80,${0.03 + r() * 0.08})`;
+      c.lineWidth = (0.6 + r() * 1.4) * dpr;
+      c.beginPath();
+      for (let y = 0; y <= h; y += 14 * dpr) {
+        const px = gx + Math.sin(y * fr + ph) * amp * u + Math.sin(y * fr * 3.1 + ph) * amp * 0.3 * u;
+        y === 0 ? c.moveTo(px, y) : c.lineTo(px, y);
+      }
+      c.stroke();
+    }
+    /* knot */
+    if (r() < 0.6) {
+      const kx = x + pw * (0.25 + r() * 0.5), ky = r() * h, kr = (7 + r() * 9) * u;
+      for (let q = 4; q > 0; q--) {
+        c.strokeStyle = `rgba(30,14,6,${0.10 + q * 0.04})`; c.lineWidth = 1.4 * dpr;
+        c.beginPath(); c.ellipse(kx, ky, kr * q * 0.5, kr * q * 1.15, 0, 0, 6.28); c.stroke();
+      }
+    }
+    /* seam */
+    c.fillStyle = 'rgba(8,3,1,0.78)'; c.fillRect(x - 1.2 * dpr, 0, 2.4 * dpr, h);
+    c.fillStyle = 'rgba(255,200,140,0.07)'; c.fillRect(x + 1.4 * dpr, 0, 1.2 * dpr, h);
+  }
+  /* old stains, scratches and nicks from a lot of previous games */
+  for (let i = 0; i < 6; i++) {
+    const g = c.createRadialGradient(r() * w, r() * h, 0, r() * w, r() * h, 90 * u);
+    const sx = r() * w, sy = r() * h, rr = (50 + r() * 90) * u;
+    const rg = c.createRadialGradient(sx, sy, 0, sx, sy, rr);
+    rg.addColorStop(0, 'rgba(20,8,2,0.28)'); rg.addColorStop(1, 'rgba(20,8,2,0)');
+    c.fillStyle = rg; c.fillRect(sx - rr, sy - rr, rr * 2, rr * 2);
+  }
+  for (let i = 0; i < 260; i++) {
+    const sx = r() * w, sy = r() * h, a = (r() - 0.5) * 1.1 + (r() < 0.5 ? 0 : 1.57), l = (6 + r() * 26) * u;
+    c.strokeStyle = r() < 0.5 ? `rgba(225,180,125,${0.05 + r() * 0.12})` : `rgba(15,6,2,${0.12 + r() * 0.25})`;
+    c.lineWidth = (0.5 + r() * 1.1) * dpr;
+    c.beginPath(); c.moveTo(sx, sy); c.lineTo(sx + Math.cos(a) * l, sy + Math.sin(a) * l); c.stroke();
+  }
+  for (let i = 0; i < 40; i++) {
+    const sx = r() * w, sy = r() * h, l = (5 + r() * 9) * u, a = -1.2 + r() * 0.5;
+    c.strokeStyle = 'rgba(10,4,1,0.55)'; c.lineWidth = 1.6 * dpr;
+    c.beginPath(); c.moveTo(sx, sy); c.lineTo(sx + Math.cos(a) * l, sy + Math.sin(a) * l); c.stroke();
+  }
+  for (let i = 0; i < 4000; i++) {
+    c.fillStyle = r() < 0.5 ? 'rgba(0,0,0,0.07)' : 'rgba(255,220,170,0.04)';
+    c.fillRect(r() * w, r() * h, dpr, dpr);
+  }
+}
+
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cw = window.innerWidth; ch = window.innerHeight;
+  canvas.width = Math.round(cw * dpr); canvas.height = Math.round(ch * dpr);
+  canvas.style.width = cw + 'px'; canvas.style.height = ch + 'px';
+  scale = Math.max(Math.min(cw / W, ch / H), 0.1);
+  ox = (cw - W * scale) / 2; oy = (ch - H * scale) / 2;
+  buildWood();
+}
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', () => setTimeout(resize, 120));
+
+/* =========================================================================
+   Blood: droplets, splats, pools
+   ========================================================================= */
+const drops = [];     // blood in flight
+const chips = [];     // wood splinters
+const pools = [];
+const handSplats = [];
+const popups = [];
+
+function bloodCol(a) {
+  const r = 100 + (Math.random() * 70) | 0, g = 3 + (Math.random() * 10) | 0, b = 7 + (Math.random() * 10) | 0;
+  return `rgba(${r},${g},${b},${a})`;
+}
+function stampSplat(c, x, y, r, ang, elong) {
+  c.save(); c.translate(x, y); c.rotate(ang);
+  c.fillStyle = bloodCol(0.93);
+  c.beginPath(); c.ellipse(0, 0, r * (1 + elong), r, 0, 0, 6.283); c.fill();
+  if (r > 2.2) {
+    c.fillStyle = bloodCol(0.9);
+    for (let i = 0; i < 3; i++) {
+      const dx = (Math.random() * 0.8 + 0.4) * r * (1.5 + elong * 1.8), dy = (Math.random() - 0.5) * r * 1.8, rr = r * (0.12 + Math.random() * 0.22);
+      c.beginPath(); c.arc(dx, dy, rr, 0, 6.283); c.fill();
+    }
+    c.fillStyle = 'rgba(255,170,160,0.28)';
+    c.beginPath(); c.ellipse(-r * 0.25, -r * 0.3, r * 0.22 * (1 + elong * 0.6), r * 0.15, 0, 0, 6.283); c.fill();
+  }
+  c.restore();
+}
+function insideHand(px, py) {
+  const hx = px - hand.x, hy = py - hand.y;
+  if (inPalm(hx, hy)) return [hx, hy];
+  for (const f of FINGERS) if (fingerDist(f, hx, hy).d < -0.5) return [hx, hy];
+  return null;
+}
+function spawnBlood(x, y, n, sMin, sMax, dir, spread, rMax) {
+  if (!S.bloodOn) return;
+  for (let i = 0; i < n; i++) {
+    const a = (Math.random() < 0.72 ? dir + (Math.random() - 0.5) * spread : Math.random() * 6.283);
+    const sp = rnd(sMin, sMax) * (Math.random() < 0.18 ? 1.5 : 1);
+    const mist = Math.random() < 0.45;
+    drops.push({ x: x + rnd(-3, 3), y: y + rnd(-3, 3), vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, r: mist ? rnd(0.5, 1.3) : rnd(1.4, rMax || 3.6), life: rnd(0.25, 0.75), a });
+  }
+}
+function landDrop(p) {
+  const hit = insideHand(p.x, p.y);
+  if (hit) { if (handSplats.length < 220) handSplats.push([hit[0], hit[1], p.r * 0.85, p.a]); return; }
+  const sp = Math.hypot(p.vx, p.vy);
+  stampSplat(dctx, p.x, p.y, p.r, Math.atan2(p.vy, p.vx), clamp(sp / 200, 0, 1.4));
+}
+function addPool(x, y, side) {
+  if (!S.bloodOn) return;
+  const pts = []; for (let i = 0; i < 16; i++) pts.push(0.82 + Math.random() * 0.4);
+  pools.push({ x, y, r: 5, max: rnd(30, 46), pts, flow: 1, age: 0, side });
+}
+function stampPool(p, final) {
+  const t = clamp(p.age / 9, 0, 1);
+  const col = `rgba(${lerp(150, 78, t) | 0},${lerp(10, 5, t) | 0},${lerp(16, 9, t) | 0},0.94)`;
+  dctx.save(); dctx.translate(p.x, p.y); dctx.fillStyle = col;
+  dctx.beginPath();
+  const n = p.pts.length, ring = [];
+  for (let i = 0; i < n; i++) {
+    const a = i / n * 6.283, rr = p.r * p.pts[i];
+    ring.push([Math.cos(a) * rr, Math.sin(a) * rr * 0.9]);
+  }
+  smooth(dctx, ring); dctx.fill();
+  if (final) {
+    dctx.strokeStyle = 'rgba(40,0,3,0.55)'; dctx.lineWidth = 1.2; dctx.stroke();
+    dctx.fillStyle = 'rgba(255,190,185,0.30)';
+    dctx.beginPath(); dctx.ellipse(-p.r * 0.32, -p.r * 0.34, p.r * 0.26, p.r * 0.11, -0.5, 0, 6.283); dctx.fill();
+    dctx.fillStyle = 'rgba(255,215,210,0.5)';
+    dctx.beginPath(); dctx.arc(-p.r * 0.38, -p.r * 0.36, 1.1, 0, 6.283); dctx.fill();
+  }
+  dctx.restore();
+}
+function popup(text, x, y, col, size) { popups.push({ text, x, y, col: col || '#fff', size: size || 22, t: 0 }); }
+
+/* =========================================================================
+   Stabbing
+   ========================================================================= */
+function level() { return S.stabs / 4; }
+function omega() { return Math.min(1.15 + 0.42 * Math.sqrt(S.stabs), 6); }
+function sweep(phase) {
+  let s = Math.sin(phase);
+  if (S.stabs > 24) s = s * 0.86 + 0.14 * Math.sin(phase * 2.7 + 1.3);
+  const x = 176 + 124 * s;
+  const row = Math.min(432 + level() * 3.4, 484);
+  const y = row + 19 * Math.sin(phase * 0.37 + 0.8) + 0.1 * (176 - x);
+  return [x, y];
+}
+
+function tryStab() {
+  if (S.mode !== 'play' || knife.mode !== 'aim') return;
+  knife.mode = 'drop'; knife.t = 0; knife.tx = knife.gx; knife.ty = knife.gy;
+  sfx.whoosh();
+}
+
+function impact() {
+  const px = knife.tx, py = knife.ty;
+  const lx = px - hand.x - hand.trem[0], ly = py - hand.y - hand.trem[1];      // hand-local point
+  /* collision */
+  let best = { d: 1e9, i: -1 }, near = [];
+  FINGERS.forEach((f, i) => {
+    const q = fingerDist(f, lx, ly); q.i = i; near.push(q);
+    if (q.d < best.d) best = q;
+  });
+  const BLADE = 2.4;
+  const palm = inPalm(lx, ly);
+  const hit = best.d < BLADE || palm;
+  knife.hit = hit;
+  S.shake = Math.max(S.shake, 3);
+  buzz(18);
+  sfx.thunk();
+  nick(px, py);
+  woodChips(px, py);
+
+  if (hit) { cut(px, py, lx, ly, best, palm); return; }
+
+  /* which gap? two nearest fingers on opposite sides of the point */
+  near.sort((a, b) => a.d - b.d);
+  const a = near[0], b = near[1];
+  const between = ((a.cx - lx) * (b.cx - lx) + (a.cy - ly) * (b.cy - ly)) < 0 && Math.abs(a.i - b.i) === 1;
+  if (!between) {
+    S.combo = 0; updateCombo();
+    popup('MISS', px, py - 30, '#bbb', 18);
+    knife.stuckDur = 0.14;
+    return;
+  }
+  const clearance = Math.min(a.d, b.d);
+  const close = clearance < 5;
+  S.stabs++; S.combo++;
+  const mult = Math.min(1 + Math.floor(S.combo / 4), 5);
+  const pts = (10 + (close ? 25 : clearance < 9 ? 8 : 0)) * mult;
+  S.score += pts;
+  popup((close ? 'CLOSE SHAVE ' : '') + '+' + pts, px, py - 34, close ? '#ffcf5a' : '#fff', close ? 24 : 20);
+  close ? sfx.close() : sfx.ping();
+  if (close) buzz([12, 30, 12]);
+  knife.stuckDur = 0.18;
+  updateHud();
+}
+
+function nick(x, y) {
+  const c = dctx; c.save(); c.translate(x, y); c.rotate(knife.tilt + Math.PI / 2);
+  c.strokeStyle = 'rgba(8,3,1,0.85)'; c.lineWidth = 1.7; c.lineCap = 'round';
+  c.beginPath(); c.moveTo(-5, 0); c.lineTo(5, 0); c.stroke();
+  c.strokeStyle = 'rgba(235,190,130,0.35)'; c.lineWidth = 0.8;
+  c.beginPath(); c.moveTo(-5.5, 1.4); c.lineTo(5.5, 1.4); c.stroke();
+  if (knife.blood > 0.05 && S.bloodOn) {
+    c.fillStyle = bloodCol(0.55 * clamp(knife.blood * 1.4, 0, 1));
+    c.beginPath(); c.ellipse(0, 0, 4.5, 2.4, 0, 0, 6.283); c.fill();
+    knife.blood = Math.max(0, knife.blood - 0.12);
+  }
+  c.restore();
+}
+function woodChips(x, y) {
+  for (let i = 0; i < 7; i++) {
+    const a = Math.random() * 6.283, s = rnd(30, 120);
+    chips.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rnd(0.25, 0.5), t: 0, l: rnd(1.5, 3.5), a, c: Math.random() < 0.5 ? '#d9a566' : '#8a5a31' });
+  }
+}
+
+function cut(px, py, lx, ly, q, palm) {
+  S.cuts++; S.combo = 0; updateCombo();
+  let fi = q.i, depth = 0.5, s = 60, u = 0, parent = FINGERS[fi];
+  if (!palm) { s = clamp(q.t, 0.28 * parent.len, 0.8 * (parent.len - parent.r1)); u = clamp(((lx - q.cx) * Math.cos(parent.ang * DEG) + (ly - q.cy) * Math.sin(parent.ang * DEG)), -parent.r0 * 0.4, parent.r0 * 0.4); depth = clamp(-q.d / q.r, 0, 1); }
+  const dmg = 15 + depth * 11 + Math.min(S.stabs, 40) * 0.12 + rnd(0, 4);
+  S.health = Math.max(0, S.health - dmg);
+
+  const slit = (knife.tilt - (palm ? 0 : parent.ang * DEG));
+  const w = { s, u, x: lx, y: ly, slit, half: palm ? 8.5 : Math.min(9.5, parent.r0 * 0.95), age: 0, flow: 1, palm, streaks: [], seed: Math.random() };
+  const ns = 4 + (Math.random() * 3 | 0);
+  for (let i = 0; i < ns; i++) {
+    const side = i % 2 ? 1 : -1;
+    w.streaks.push({ ax: Math.random() < 0.55 ? 'along' : 'across', dir: side, off: rnd(-6, 6), len: rnd(14, 46), wd: rnd(1.6, 3.6), delay: rnd(0, 0.5), spd: rnd(7, 15) });
+  }
+  (palm ? hand.palmWounds : parent.wounds).push(w);
+  allWounds.push(w);
+
+  knife.blood = 1; knife.stuckDur = 0.55;
+  S.hitStop = 0.11; S.shake = 15; S.flash = 0.6;
+  /* hand yanks back */
+  hand.vx += (Math.random() < 0.5 ? -1 : 1) * rnd(70, 140); hand.vy += rnd(90, 180);
+  if (!palm) parent.rotV += (Math.random() < 0.5 ? -1 : 1) * rnd(5, 8);
+  buzz([60, 30, 140]);
+  sfx.squelch(); sfx.grunt(); sfx.twang();
+
+  /* blood */
+  const dir = Math.PI / 2 + (Math.random() - 0.5) * 1.2;
+  spawnBlood(px, py, 46, 80, 380, dir, 2.4, 4.2);
+  spawnBlood(px, py, 60, 40, 200, dir, 6.3, 1.6);
+  const side = Math.random() < 0.5 ? -1 : 1;
+  const wx = px + side * (palm ? 12 : parent.r0 * 0.9), wy = py + 6;
+  addPool(wx, wy, side);
+  addPool(px - side * 6, py + 10, -side);
+  popup(['OUCH!', 'AGH!', 'SLICED'][Math.random() * 3 | 0], px, py - 40, '#ff5148', 30);
+  updateHud();
+
+  if (S.health <= 0) die();
+}
+
+function die() {
+  if (S.mode === 'dying' || S.mode === 'over') return;
+  S.mode = 'dying'; S.dyingT = 0;
+  sfx.faint();
+}
+
+const allWounds = [];
+hand.palmWounds = [];
+
+/* =========================================================================
+   Update
+   ========================================================================= */
+function update(rdt) {
+  let ts = 1;
+  if (S.hitStop > 0) { S.hitStop -= rdt; ts = 0.04; }
+  else if (S.mode === 'dying') ts = 0.35;
+  const dt = rdt * ts;
+  S.time += dt; S.rtime += rdt;
+  S.shake = Math.max(0, S.shake - rdt * 42);
+  S.flash = Math.max(0, S.flash - rdt * 1.6);
+
+  /* knife */
+  const om = S.mode === 'menu' ? 1.25 : omega();
+  if (knife.mode === 'aim') {
+    knife.phase += om * dt;
+    const p = sweep(knife.phase); knife.gx = p[0]; knife.gy = p[1];
+    knife.h = 0.55 + 0.04 * Math.sin(S.rtime * 5);
+  } else if (knife.mode === 'drop') {
+    knife.t += dt;
+    const k = Math.min(1, knife.t / 0.07);
+    knife.h = 0.55 * (1 - k * k);
+    if (k >= 1) { knife.h = 0; knife.mode = 'stuck'; knife.t = 0; knife.twang = 0.07; impact(); }
+  } else if (knife.mode === 'stuck') {
+    knife.t += dt;
+    knife.twang = 0.07 * Math.exp(-knife.t * 11) * Math.cos(knife.t * 70);
+    if (knife.t >= knife.stuckDur) { knife.mode = 'rise'; knife.t = 0; }
+  } else if (knife.mode === 'rise') {
+    knife.t += dt;
+    const k = Math.min(1, knife.t / 0.16);
+    knife.phase += om * dt * 0.5;
+    const p = sweep(knife.phase); knife.gx = p[0]; knife.gy = p[1];
+    knife.h = 0.55 * (1 - Math.pow(1 - k, 2));
+    knife.twang *= 0.8;
+    if (k >= 1) knife.mode = 'aim';
+  }
+
+  /* hand: tremble, recoil spring */
+  const lvl = S.mode === 'menu' ? 0 : level();
+  const ta = Math.min(0.2 + lvl * 0.08, 1.6) * (1 + (1 - S.health / 100) * 0.9);
+  hand.trem[0] = ta * (Math.sin(S.rtime * 13.1) + 0.6 * Math.sin(S.rtime * 7.7 + 1));
+  hand.trem[1] = ta * (Math.sin(S.rtime * 11.3 + 2) + 0.6 * Math.sin(S.rtime * 5.9));
+  hand.vx += -hand.x * 120 * dt - hand.vx * 9 * dt;
+  hand.vy += -hand.y * 120 * dt - hand.vy * 9 * dt;
+  hand.x += hand.vx * dt; hand.y += hand.vy * dt;
+  FINGERS.forEach(f => { f.rotV += -f.rot * 160 * dt - f.rotV * 7 * dt; f.rot += f.rotV * dt * DEG * 1; });
+
+  /* wounds and bleeding */
+  let bleed = 0;
+  for (const w of allWounds) {
+    w.age += dt;
+    if (w.flow > 0) {
+      bleed += w.flow;
+      w.flow = Math.max(0, w.flow - dt / 8);
+      /* heartbeat spurts early on */
+      if (S.bloodOn && w.age < 2.6) {
+        const ph = (w.age * 1.7) % 1;
+        if (ph < 0.22 && Math.random() < 0.9) {
+          const wp = woundWorld(w);
+          spawnBlood(wp[0], wp[1], 3, 60, 180 * (1 - w.age / 3), Math.PI / 2 + (Math.random() - 0.5) * 2.4, 3.2, 3);
+        }
+      }
+    }
+  }
+  if (S.mode === 'play' && bleed > 0) {
+    S.health = Math.max(0, S.health - bleed * 0.8 * dt);
+    if (S.health <= 0) die();
+  }
+  for (const p of pools) {
+    p.age += dt;
+    if (p.r < p.max && p.flow > 0.02) {
+      p.r += 11 * p.flow * dt; p.flow = Math.max(0, p.flow - dt / 7);
+      stampPool(p, false);
+    } else if (!p.done) { p.done = true; stampPool(p, true); }
+  }
+
+  /* particles */
+  for (let i = drops.length - 1; i >= 0; i--) {
+    const p = drops[i];
+    const k = Math.exp(-3.4 * dt); p.vx *= k; p.vy *= k;
+    p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt;
+    if (p.life <= 0 || Math.hypot(p.vx, p.vy) < 24) { landDrop(p); drops.splice(i, 1); }
+  }
+  for (let i = chips.length - 1; i >= 0; i--) {
+    const p = chips[i]; p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.9; p.vy *= 0.9;
+    if (p.t > p.life) chips.splice(i, 1);
+  }
+  for (let i = popups.length - 1; i >= 0; i--) { const p = popups[i]; p.t += rdt; p.y -= 26 * rdt; if (p.t > 1.1) popups.splice(i, 1); }
+
+  /* heartbeat when hurt */
+  if (S.mode === 'play' || S.mode === 'dying') {
+    const hp = S.health / 100;
+    if (hp < 0.55) {
+      const period = lerp(0.42, 1.0, clamp((hp - 0.05) / 0.5, 0, 1)) * 1.25;
+      S.beatT -= rdt;
+      if (S.beatT <= 0) { S.beatT = period; S.pulse = 1; sfx.beat(); }
+    }
+  }
+  S.pulse = Math.max(0, S.pulse - rdt * 2.4);
+
+  if (S.mode === 'dying') {
+    S.dyingT += rdt;
+    if (S.dyingT > 1.7) showOver();
+  }
+}
+
+function woundWorld(w) {
+  if (w.palm) return [w.x + hand.x, w.y + hand.y];
+  return [w.x + hand.x, w.y + hand.y];
+}
+
+/* =========================================================================
+   Rendering
+   ========================================================================= */
+function render() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (wood) ctx.drawImage(wood, 0, 0);
+
+  const sx = S.shake ? (Math.random() - 0.5) * S.shake : 0, sy = S.shake ? (Math.random() - 0.5) * S.shake : 0;
+  ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * (ox + sx * scale), dpr * (oy + sy * scale));
+
+  ctx.drawImage(decals, 0, 0, W, H);
+
+  drawHand(ctx);
+  drawKnife(ctx);
+  drawParticles(ctx);
+  drawPopups(ctx);
+  if (DEBUG) drawDebug(ctx);
+
+  /* screen-space lighting + damage */
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  const cx = canvas.width / 2, cy = canvas.height * 0.52, R = Math.max(canvas.width, canvas.height) * 0.75;
+  let g = ctx.createRadialGradient(cx, cy, R * 0.18, cx, cy, R);
+  g.addColorStop(0, 'rgba(255,214,150,0.07)'); g.addColorStop(0.55, 'rgba(0,0,0,0.18)'); g.addColorStop(1, 'rgba(0,0,0,0.78)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const hurt = 1 - S.health / 100;
+  if (hurt > 0.05 || S.mode === 'dying') {
+    const a = clamp(hurt * 0.85, 0, 0.85) * (0.75 + 0.25 * S.pulse) + (S.mode === 'dying' ? clamp(S.dyingT / 1.7, 0, 1) * 0.6 : 0);
+    g = ctx.createRadialGradient(cx, cy, R * 0.12, cx, cy, R * (0.85 - hurt * 0.25));
+    g.addColorStop(0, 'rgba(90,0,0,0)'); g.addColorStop(1, `rgba(${S.mode === 'dying' ? 0 : 95},0,0,${clamp(a, 0, 0.95)})`);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  if (S.flash > 0) { ctx.fillStyle = `rgba(190,10,16,${S.flash * 0.5})`; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+}
+
+/* ---------- hand ---------- */
+const SKIN = ['#b57654', '#d79b78', '#eab898', '#e0a987', '#c78a67', '#a56a49'];
+function skinGrad(c, x0, x1) {
+  const g = c.createLinearGradient(x0, 0, x1, 0);
+  g.addColorStop(0, SKIN[0]); g.addColorStop(0.18, SKIN[1]); g.addColorStop(0.42, SKIN[2]);
+  g.addColorStop(0.62, SKIN[3]); g.addColorStop(0.86, SKIN[4]); g.addColorStop(1, SKIN[5]);
+  return g;
+}
+function fingerShape(c, f) {
+  const cl = f.len - f.r1;
+  c.beginPath();
+  c.moveTo(-f.r0, 0); c.lineTo(-f.r1, -cl);
+  c.arc(0, -cl, f.r1, Math.PI, Math.PI * 2, false);
+  c.lineTo(f.r0, 0);
+}
+
+function drawHand(c) {
+  c.save();
+  c.translate(hand.x + hand.trem[0], hand.y + hand.trem[1]);
+
+  /* pass 1: cast shadow of the whole hand */
+  c.save();
+  c.shadowColor = 'rgba(0,0,0,0.55)'; c.shadowBlur = 16; c.shadowOffsetX = 7; c.shadowOffsetY = 11;
+  c.fillStyle = '#7d4d36';
+  c.fill(palmPath);
+  FINGERS.forEach(f => { c.save(); c.translate(f.bx, f.by); c.rotate((f.ang * DEG) + f.rot); fingerShape(c, f); c.fill(); c.restore(); });
+  c.restore();
+
+  /* forearm + palm/back of hand */
+  c.save();
+  const pg = c.createRadialGradient(205, 580, 10, 205, 600, 170);
+  pg.addColorStop(0, '#e9b997'); pg.addColorStop(0.5, '#d89c79'); pg.addColorStop(1, '#a96e4d');
+  c.fillStyle = pg; c.fill(palmPath);
+  c.clip(palmPath);
+  /* tendons */
+  c.lineCap = 'round';
+  [[150, 515, 175, 720], [190, 508, 200, 730], [229, 514, 222, 720], [262, 528, 238, 700]].forEach(t => {
+    c.strokeStyle = 'rgba(255,236,216,0.13)'; c.lineWidth = 7; c.beginPath(); c.moveTo(t[0], t[1]); c.quadraticCurveTo((t[0] + t[2]) / 2 + 3, 600, t[2], t[3]); c.stroke();
+    c.strokeStyle = 'rgba(95,50,32,0.16)'; c.lineWidth = 2; c.beginPath(); c.moveTo(t[0] + 6, t[1] + 4); c.quadraticCurveTo((t[0] + t[2]) / 2 + 9, 600, t[2] + 6, t[3]); c.stroke();
+  });
+  /* veins */
+  [[[212, 535], [216, 575], [204, 625], [214, 690]], [[176, 535], [172, 580], [166, 630], [176, 690]], [[246, 545], [248, 585], [238, 625], [232, 670]]].forEach(v => {
+    c.strokeStyle = 'rgba(70,92,125,0.20)'; c.lineWidth = 5.5; c.beginPath(); c.moveTo(v[0][0], v[0][1]); c.bezierCurveTo(v[1][0], v[1][1], v[2][0], v[2][1], v[3][0], v[3][1]); c.stroke();
+    c.strokeStyle = 'rgba(60,82,118,0.22)'; c.lineWidth = 2.2; c.beginPath(); c.moveTo(v[0][0], v[0][1]); c.bezierCurveTo(v[1][0], v[1][1], v[2][0], v[2][1], v[3][0], v[3][1]); c.stroke();
+    c.strokeStyle = 'rgba(255,225,205,0.12)'; c.lineWidth = 1; c.beginPath(); c.moveTo(v[0][0] - 3, v[0][1]); c.bezierCurveTo(v[1][0] - 3, v[1][1], v[2][0] - 3, v[2][1], v[3][0] - 3, v[3][1]); c.stroke();
+  });
+  /* knuckle bumps */
+  FINGERS.slice(1).forEach(f => {
+    const g = c.createRadialGradient(f.bx - 3, f.by + 14, 1, f.bx, f.by + 16, 22);
+    g.addColorStop(0, 'rgba(255,230,205,0.30)'); g.addColorStop(1, 'rgba(255,230,205,0)');
+    c.fillStyle = g; c.fillRect(f.bx - 26, f.by - 10, 52, 56);
+    c.strokeStyle = 'rgba(105,55,36,0.22)'; c.lineWidth = 1;
+    for (let k = 0; k < 3; k++) { c.beginPath(); c.moveTo(f.bx - 9, f.by + 12 + k * 4.5); c.quadraticCurveTo(f.bx, f.by + 8 + k * 4.5, f.bx + 9, f.by + 12 + k * 4.5); c.stroke(); }
+  });
+  /* hair */
+  c.strokeStyle = 'rgba(55,32,22,0.55)'; c.lineWidth = 0.7; c.beginPath();
+  palmHair.forEach(h => { c.moveTo(h[0], h[1]); c.lineTo(h[0] + Math.sin(h[2]) * h[3], h[1] + Math.cos(h[2]) * h[3] * 0.4 - h[3] * 0.4); });
+  c.stroke();
+  /* side shading */
+  const sg = c.createLinearGradient(100, 0, 285, 0);
+  sg.addColorStop(0, 'rgba(70,30,15,0.30)'); sg.addColorStop(0.2, 'rgba(70,30,15,0)'); sg.addColorStop(0.8, 'rgba(70,30,15,0)'); sg.addColorStop(1, 'rgba(70,30,15,0.34)');
+  c.fillStyle = sg; c.fillRect(100, 500, 190, 320);
+  /* palm wounds */
+  hand.palmWounds.forEach(w => drawWound(c, w, null));
+  c.restore();
+  c.strokeStyle = 'rgba(80,38,22,0.55)'; c.lineWidth = 1.2; c.stroke(palmPath);
+
+  /* fingers: draw order thumb, pinky, ring, index, middle */
+  [0, 4, 3, 1, 2].forEach(i => drawFinger(c, FINGERS[i]));
+
+  /* sleeve */
+  drawSleeve(c);
+
+  /* blood that landed on skin */
+  if (handSplats.length) {
+    c.save();
+    handSplats.forEach(s => { c.fillStyle = 'rgba(120,6,10,0.88)'; c.beginPath(); c.arc(s[0], s[1], s[2], 0, 6.283); c.fill(); });
+    c.restore();
+  }
+  c.restore();
+}
+
+function drawFinger(c, f) {
+  const cl = f.len - f.r1;
+  c.save();
+  c.translate(f.bx, f.by); c.rotate(f.ang * DEG + f.rot);
+  fingerShape(c, f);
+  c.fillStyle = skinGrad(c, -f.r0, f.r0); c.fill();
+  c.save(); c.clip();
+  /* lengthwise sheen */
+  const sh = c.createLinearGradient(-f.r0 * 0.7, 0, f.r0 * 0.1, 0);
+  sh.addColorStop(0, 'rgba(255,235,215,0)'); sh.addColorStop(0.55, 'rgba(255,235,215,0.20)'); sh.addColorStop(1, 'rgba(255,235,215,0)');
+  c.fillStyle = sh; c.fillRect(-f.r0, -f.len, f.r0 * 2, f.len);
+  /* darker toward base where it meets neighbours */
+  const bg = c.createLinearGradient(0, 0, 0, -f.len * 0.35);
+  bg.addColorStop(0, 'rgba(90,45,28,0.26)'); bg.addColorStop(1, 'rgba(90,45,28,0)');
+  c.fillStyle = bg; c.fillRect(-f.r0, -f.len * 0.35, f.r0 * 2, f.len * 0.35);
+  /* joint creases and knuckle highlights */
+  f.joints.forEach((j, k) => {
+    const y = -cl * j, r = lerp(f.r0, f.r1, j);
+    c.strokeStyle = 'rgba(100,52,34,0.34)'; c.lineWidth = 0.9;
+    for (let n = -1; n <= 1; n++) {
+      c.beginPath(); c.moveTo(-r * 0.78, y + n * 3.2); c.quadraticCurveTo(0, y + n * 3.2 + (k ? 1.6 : 2.4), r * 0.78, y + n * 3.2); c.stroke();
+    }
+    const hg = c.createRadialGradient(-r * 0.2, y - 5, 0.5, -r * 0.2, y - 5, r * 1.1);
+    hg.addColorStop(0, 'rgba(255,235,215,0.28)'); hg.addColorStop(1, 'rgba(255,235,215,0)');
+    c.fillStyle = hg; c.fillRect(-r, y - r * 1.5, r * 2, r * 3);
+  });
+  /* hair */
+  c.strokeStyle = 'rgba(55,32,22,0.5)'; c.lineWidth = 0.65; c.beginPath();
+  f.hair.forEach(h => { c.moveTo(h[0], h[1]); c.lineTo(h[0] + Math.sin(h[2]) * h[3] * 0.6, h[1] - Math.cos(h[2]) * h[3]); });
+  c.stroke();
+  /* wounds */
+  f.wounds.forEach(w => drawWound(c, w, f));
+  c.restore();
+  c.strokeStyle = 'rgba(78,36,20,0.62)'; c.lineWidth = 1.15;
+  c.lineJoin = 'round'; c.stroke();
+  /* knuckle blend into the back of hand */
+  const kb = c.createRadialGradient(0, 4, 2, 0, 4, f.r0 * 1.5);
+  kb.addColorStop(0, 'rgba(222,160,128,0.95)'); kb.addColorStop(1, 'rgba(222,160,128,0)');
+  c.save(); c.globalCompositeOperation = 'source-over'; c.fillStyle = kb; c.beginPath(); c.arc(0, 4, f.r0 * 1.5, 0, 6.283); c.fill(); c.restore();
+  drawNail(c, f);
+  c.restore();
+}
+
+function drawNail(c, f) {
+  const nw = f.r1 * 0.92, nh = f.r1 * 1.55, top = -f.len + 3.2;
+  c.save();
+  rrect(c, -nw, top, nw * 2, nh, nw * 0.85, nw * 0.45);
+  const g = c.createLinearGradient(0, top, 0, top + nh);
+  g.addColorStop(0, '#f2cfc4'); g.addColorStop(0.6, '#e9b2a6'); g.addColorStop(1, '#df9d92');
+  c.fillStyle = g; c.fill();
+  c.strokeStyle = 'rgba(120,60,50,0.55)'; c.lineWidth = 0.9; c.stroke();
+  c.save(); rrect(c, -nw, top, nw * 2, nh, nw * 0.85, nw * 0.45); c.clip();
+  /* lunula + highlight */
+  c.fillStyle = 'rgba(255,240,235,0.30)'; c.beginPath(); c.ellipse(0, top + nh, nw * 0.7, nh * 0.2, 0, Math.PI, 0); c.fill();
+  c.fillStyle = 'rgba(255,255,255,0.38)'; c.beginPath(); c.ellipse(-nw * 0.38, top + nh * 0.33, nw * 0.18, nh * 0.26, 0.15, 0, 6.283); c.fill();
+  c.restore();
+  /* cuticle shadow */
+  c.strokeStyle = 'rgba(105,50,36,0.35)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(-nw * 0.9, top + nh + 0.8); c.quadraticCurveTo(0, top + nh + 3.6, nw * 0.9, top + nh + 0.8); c.stroke();
+  c.restore();
+}
+
+function drawSleeve(c) {
+  c.save();
+  const y0 = 738;
+  c.beginPath();
+  c.moveTo(130, y0 + 3);
+  c.bezierCurveTo(160, y0 - 7, 200, y0 + 9, 240, y0 - 2);
+  c.lineTo(270, y0 + 2);
+  c.lineTo(334, 1000); c.lineTo(66, 1000); c.closePath();
+  const g = c.createLinearGradient(0, 0, 400, 0);
+  g.addColorStop(0, '#16181b'); g.addColorStop(0.3, '#2c3036'); g.addColorStop(0.55, '#33383f'); g.addColorStop(0.8, '#23262b'); g.addColorStop(1, '#111316');
+  c.shadowColor = 'rgba(0,0,0,0.55)'; c.shadowBlur = 14; c.shadowOffsetY = 6;
+  c.fillStyle = g; c.fill();
+  c.shadowColor = 'transparent';
+  c.save(); c.clip();
+  c.strokeStyle = 'rgba(0,0,0,0.38)'; c.lineWidth = 3;
+  for (let i = 0; i < 5; i++) { c.beginPath(); c.moveTo(135 + i * 32, y0 + 5); c.quadraticCurveTo(128 + i * 36 - 14, y0 + 50, 112 + i * 44, y0 + 140); c.stroke(); }
+  c.strokeStyle = 'rgba(255,255,255,0.05)'; c.lineWidth = 2;
+  for (let i = 0; i < 5; i++) { c.beginPath(); c.moveTo(139 + i * 32, y0 + 4); c.quadraticCurveTo(132 + i * 36 - 14, y0 + 50, 116 + i * 44, y0 + 140); c.stroke(); }
+  c.restore();
+  c.strokeStyle = 'rgba(255,255,255,0.10)'; c.lineWidth = 1.5;
+  c.beginPath(); c.moveTo(130, y0 + 3); c.bezierCurveTo(160, y0 - 7, 200, y0 + 9, 240, y0 - 2); c.lineTo(270, y0 + 2); c.stroke();
+  c.restore();
+}
+
+/* wound drawn in the local frame of a finger (origin at its base) or the hand */
+function drawWound(c, w, f) {
+  if (!S.bloodOn) { drawSlit(c, w, f, 0.4); return; }
+  const age = w.age, grow = clamp(age / 1.4, 0, 1);
+  const px = f ? w.u : w.x, py = f ? -w.s : w.y;
+  c.save();
+  c.translate(px, py);
+  /* blood spreading over the skin */
+  const R = (w.half * 0.9 + 10 * grow + 4) * (0.8 + 0.2 * Math.min(1, w.flow * 3));
+  const g = c.createRadialGradient(0, 0, 1, 0, 0, R);
+  g.addColorStop(0, 'rgba(95,3,7,0.96)'); g.addColorStop(0.55, 'rgba(140,8,13,0.82)'); g.addColorStop(1, 'rgba(150,10,16,0)');
+  c.fillStyle = g; c.beginPath(); c.arc(0, 0, R, 0, 6.283); c.fill();
+  /* runnels */
+  w.streaks.forEach(s => {
+    const t = clamp((age - s.delay) * 0.9, 0, 1) * clamp(0.35 + w.flow * 1.4, 0, 1);
+    if (t <= 0) return;
+    const len = s.len * (1 - Math.pow(1 - t, 2.2));
+    c.lineCap = 'round';
+    const tw = (s.ax === 'along') ? [s.off * 0.35, s.dir * len] : [s.dir * len, s.off * 0.3];
+    if (f && s.ax === 'along') { /* run along the finger */ c.beginPath(); c.moveTo(s.off * 0.35, 0); c.lineTo(s.off * 0.35 + Math.sin(age + s.off) * 1.2, s.dir * len); }
+    else { c.beginPath(); c.moveTo(0, s.off * 0.3); c.lineTo(s.dir * len, s.off * 0.3 + Math.sin(age + s.off) * 1.0); }
+    c.strokeStyle = 'rgba(85,3,7,0.92)'; c.lineWidth = s.wd; c.stroke();
+    c.strokeStyle = 'rgba(190,28,34,0.55)'; c.lineWidth = s.wd * 0.42;
+    c.stroke();
+    /* bead at the end of the runnel */
+    const ex = (f && s.ax === 'along') ? s.off * 0.35 : s.dir * len, ey = (f && s.ax === 'along') ? s.dir * len : s.off * 0.3;
+    c.fillStyle = 'rgba(80,2,6,0.95)'; c.beginPath(); c.arc(ex, ey, s.wd * 0.75, 0, 6.283); c.fill();
+    c.fillStyle = 'rgba(255,200,195,0.55)'; c.beginPath(); c.arc(ex - s.wd * 0.2, ey - s.wd * 0.25, s.wd * 0.22, 0, 6.283); c.fill();
+  });
+  drawSlit(c, w, f, 1, true);
+  c.restore();
+}
+function drawSlit(c, w, f, a, inFrame) {
+  c.save();
+  if (!inFrame) c.translate(f ? w.u : w.x, f ? -w.s : w.y);
+  c.rotate(w.slit);
+  const h = w.half, wet = clamp(0.4 + w.flow * 1.2, 0.5, 1);
+  c.lineCap = 'round'; c.lineJoin = 'round';
+  /* swollen lips */
+  c.strokeStyle = `rgba(255,140,128,${0.38 * a})`; c.lineWidth = 5.4;
+  c.beginPath(); c.moveTo(-h, 0); c.lineTo(h, 0); c.stroke();
+  /* torn edge */
+  c.strokeStyle = `rgba(40,2,5,${0.98 * a})`; c.lineWidth = 3.4;
+  c.beginPath(); c.moveTo(-h, 0);
+  for (let i = 1; i <= 8; i++) c.lineTo(-h + (2 * h) * i / 8, Math.sin(i * 12.9898 + w.seed * 78.233) * 0.9);
+  c.stroke();
+  /* wet interior */
+  c.strokeStyle = `rgba(${150 * wet | 0},6,12,${0.95 * a})`; c.lineWidth = 1.7;
+  c.beginPath(); c.moveTo(-h + 1.5, 0); c.lineTo(h - 1.5, 0); c.stroke();
+  /* specular on wet blood */
+  c.fillStyle = `rgba(255,215,210,${0.8 * a})`; c.beginPath(); c.arc(-h * 0.25, -1.2, 0.8, 0, 6.283); c.fill();
+  c.restore();
+}
+
+/* ---------- knife ---------- */
+function bladePath(c) {
+  c.beginPath();
+  c.moveTo(0, 0);
+  c.quadraticCurveTo(-8.5, -7, -10.5, -36);
+  c.lineTo(-10.5, -128); c.lineTo(10.5, -128); c.lineTo(10.5, -54);
+  c.quadraticCurveTo(9, -18, 0, 0);
+  c.closePath();
+}
+function handlePath(c) {
+  c.beginPath();
+  c.moveTo(-12.5, -134);
+  c.lineTo(12.5, -134);
+  c.bezierCurveTo(14.5, -170, 14, -205, 13, -236);
+  c.quadraticCurveTo(0, -246, -13, -236);
+  c.bezierCurveTo(-14, -205, -14.5, -170, -12.5, -134);
+  c.closePath();
+}
+function knifeSilhouette(c) { bladePath(c); c.fill(); handlePath(c); c.fill(); c.fillRect(-13, -135, 26, 11); }
+
+function drawKnife(c) {
+  const k = knife, h = k.h;
+  const ang = k.tilt + k.twang;
+  /* ground shadow stays at the target point; the knife lifts up and toward the viewer */
+  const gx = (k.mode === 'aim' || k.mode === 'rise') ? k.gx : k.tx, gy = (k.mode === 'aim' || k.mode === 'rise') ? k.gy : k.ty;
+  c.save();
+  c.translate(gx + 2, gy + 3); c.rotate(ang); c.scale(1, 1);
+  c.shadowColor = 'rgba(0,0,0,0.5)'; c.shadowBlur = 5 + h * 22; c.shadowOffsetX = 0; c.shadowOffsetY = 0;
+  c.fillStyle = `rgba(0,0,0,${0.34 - h * 0.12})`;
+  c.translate(h * 22, h * 30);
+  knifeSilhouette(c);
+  c.restore();
+
+  c.save();
+  c.translate(gx - h * 16, gy - h * 24);
+  c.rotate(ang);
+  const sc = 1 + h * 0.2; c.scale(sc, sc);
+  /* handle */
+  handlePath(c);
+  const hg = c.createLinearGradient(-14, 0, 14, 0);
+  hg.addColorStop(0, '#0e0b0a'); hg.addColorStop(0.28, '#3b2f27'); hg.addColorStop(0.5, '#54443a'); hg.addColorStop(0.78, '#261e19'); hg.addColorStop(1, '#0a0807');
+  c.fillStyle = hg; c.fill();
+  c.save(); handlePath(c); c.clip();
+  c.strokeStyle = 'rgba(0,0,0,0.35)'; c.lineWidth = 0.8;
+  for (let i = -3; i <= 3; i++) { c.beginPath(); c.moveTo(i * 3.8, -134); c.bezierCurveTo(i * 4.1, -170, i * 3.6, -205, i * 3.8, -240); c.stroke(); }
+  const hs = c.createLinearGradient(0, -134, 0, -240);
+  hs.addColorStop(0, 'rgba(255,255,255,0.0)'); hs.addColorStop(0.5, 'rgba(255,255,255,0.06)'); hs.addColorStop(1, 'rgba(0,0,0,0.25)');
+  c.fillStyle = hs; c.fillRect(-16, -245, 32, 112);
+  c.restore();
+  c.strokeStyle = 'rgba(0,0,0,0.7)'; c.lineWidth = 1; handlePath(c); c.stroke();
+  /* rivets */
+  [-152, -188, -222].forEach(y => {
+    const rg = c.createRadialGradient(-1, y - 1, 0.3, 0, y, 3.4);
+    rg.addColorStop(0, '#f1d58a'); rg.addColorStop(0.6, '#a67c2e'); rg.addColorStop(1, '#4a3510');
+    c.fillStyle = rg; c.beginPath(); c.arc(0, y, 3.3, 0, 6.283); c.fill();
+  });
+  /* bolster */
+  rrect(c, -13.5, -137, 27, 13, 2, 2);
+  const bg = c.createLinearGradient(-14, 0, 14, 0);
+  bg.addColorStop(0, '#6e767d'); bg.addColorStop(0.35, '#e8edf0'); bg.addColorStop(0.7, '#9aa3aa'); bg.addColorStop(1, '#5b636a');
+  c.fillStyle = bg; c.fill(); c.strokeStyle = 'rgba(0,0,0,0.55)'; c.lineWidth = 0.8; c.stroke();
+  /* blade */
+  bladePath(c);
+  const sg = c.createLinearGradient(-10.5, 0, 10.5, 0);
+  sg.addColorStop(0, '#7e868d'); sg.addColorStop(0.08, '#f4f8fa'); sg.addColorStop(0.2, '#b9c2c9'); sg.addColorStop(0.45, '#eef2f4'); sg.addColorStop(0.62, '#9ba4ab'); sg.addColorStop(0.85, '#d3dade'); sg.addColorStop(1, '#69717a');
+  c.fillStyle = sg; c.fill();
+  c.save(); bladePath(c); c.clip();
+  /* grind line and edge bevel */
+  c.strokeStyle = 'rgba(60,70,78,0.45)'; c.lineWidth = 0.8; c.beginPath(); c.moveTo(-5, -26); c.lineTo(-5.8, -128); c.stroke();
+  c.strokeStyle = 'rgba(255,255,255,0.8)'; c.lineWidth = 1; c.beginPath(); c.moveTo(-9.8, -38); c.lineTo(-9.8, -128); c.stroke();
+  /* travelling glint */
+  const gp = -(((k.gx * 0.55 + S.rtime * 60) % 150) + 6);
+  const gl = c.createLinearGradient(0, gp - 16, 0, gp + 16);
+  gl.addColorStop(0, 'rgba(255,255,255,0)'); gl.addColorStop(0.5, 'rgba(255,255,255,0.6)'); gl.addColorStop(1, 'rgba(255,255,255,0)');
+  c.fillStyle = gl; c.fillRect(-12, gp - 16, 24, 32);
+  /* blood on steel */
+  if (S.bloodOn && k.blood > 0.02) {
+    const b = clamp(k.blood * 1.25, 0, 1);
+    const bgd = c.createLinearGradient(0, 0, 0, -78);
+    bgd.addColorStop(0, `rgba(105,4,8,${0.95 * b})`); bgd.addColorStop(0.5, `rgba(130,8,14,${0.75 * b})`); bgd.addColorStop(1, 'rgba(130,8,14,0)');
+    c.fillStyle = bgd; c.fillRect(-12, -80, 24, 80);
+    c.strokeStyle = `rgba(90,3,7,${0.85 * b})`; c.lineWidth = 2.2; c.lineCap = 'round';
+    [[-7, -92], [-2, -70], [5, -84]].forEach(d => { c.beginPath(); c.moveTo(d[0], -52); c.lineTo(d[0], d[1]); c.stroke(); });
+  }
+  c.restore();
+  c.strokeStyle = 'rgba(20,26,30,0.7)'; c.lineWidth = 0.9; bladePath(c); c.stroke();
+  c.restore();
+}
+
+function drawParticles(c) {
+  c.lineCap = 'round';
+  drops.forEach(p => {
+    const sp = Math.hypot(p.vx, p.vy);
+    c.strokeStyle = 'rgba(120,5,10,0.92)';
+    c.lineWidth = p.r * 1.8;
+    c.beginPath(); c.moveTo(p.x, p.y); c.lineTo(p.x - p.vx * 0.022, p.y - p.vy * 0.022); c.stroke();
+    if (p.r > 1.8) { c.fillStyle = 'rgba(255,170,160,0.5)'; c.beginPath(); c.arc(p.x - p.r * 0.3, p.y - p.r * 0.3, p.r * 0.25, 0, 6.283); c.fill(); }
+  });
+  chips.forEach(p => {
+    c.save(); c.translate(p.x, p.y); c.rotate(p.a); c.globalAlpha = 1 - p.t / p.life; c.fillStyle = p.c; c.fillRect(-p.l, -0.5, p.l * 2, 1.2); c.restore();
+  });
+}
+function drawPopups(c) {
+  c.textAlign = 'center'; c.lineJoin = 'round';
+  popups.forEach(p => {
+    const a = p.t < 0.15 ? p.t / 0.15 : clamp(1 - (p.t - 0.7) / 0.4, 0, 1);
+    const sc = p.t < 0.12 ? 0.6 + p.t / 0.12 * 0.5 : 1.1 - Math.min(0.1, (p.t - 0.12) * 0.3);
+    c.save(); c.globalAlpha = a; c.translate(clamp(p.x, 60, W - 60), clamp(p.y, 40, H)); c.scale(sc, sc);
+    c.font = `${p.size}px Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif`;
+    c.lineWidth = 5; c.strokeStyle = '#000'; c.strokeText(p.text, 0, 0);
+    c.fillStyle = p.col; c.fillText(p.text, 0, 0);
+    c.restore();
+  });
+}
+function drawDebug(c) {
+  c.save(); c.translate(hand.x + hand.trem[0], hand.y + hand.trem[1]);
+  c.strokeStyle = 'rgba(0,255,0,.8)'; c.lineWidth = 1;
+  FINGERS.forEach(f => {
+    const a = f.ang * DEG, cl = f.len - f.r1;
+    c.beginPath(); c.arc(f.bx + Math.sin(a) * cl, f.by - Math.cos(a) * cl, f.r1, 0, 6.28); c.stroke();
+    c.beginPath(); c.arc(f.bx, f.by, f.r0, 0, 6.28); c.stroke();
+    c.beginPath(); c.moveTo(f.bx, f.by); c.lineTo(f.bx + Math.sin(a) * cl, f.by - Math.cos(a) * cl); c.stroke();
+  });
+  c.restore();
+  c.strokeStyle = 'rgba(255,255,0,.8)'; c.beginPath();
+  for (let i = 0; i < 400; i++) { const p = sweep(i * 0.04); i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1]); }
+  c.stroke();
+}
+
+/* =========================================================================
+   HUD / screens
+   ========================================================================= */
+function updateHud() {
+  $('score').textContent = S.score;
+  $('best').textContent = 'Best ' + Math.max(S.best, S.score);
+  $('barfill').style.transform = `scaleX(${clamp(S.health / 100, 0, 1)})`;
+  $('vit').classList.toggle('low', S.health < 35);
+  updateCombo();
+}
+function updateCombo() {
+  const m = Math.min(1 + Math.floor(S.combo / 4), 5);
+  $('combo').textContent = S.combo >= 2 ? `${S.combo} in a row${m > 1 ? ' ×' + m : ''}` : '';
+}
+
+function resetWorld() {
+  dctx.clearRect(0, 0, W, H);
+  drops.length = chips.length = pools.length = handSplats.length = popups.length = allWounds.length = 0;
+  hand.palmWounds.length = 0; hand.x = hand.y = hand.vx = hand.vy = 0;
+  FINGERS.forEach(f => { f.wounds.length = 0; f.rot = f.rotV = 0; });
+  Object.assign(knife, { phase: 0, mode: 'aim', t: 0, blood: 0, h: 0.55, twang: 0 });
+  Object.assign(S, { score: 0, combo: 0, health: 100, stabs: 0, cuts: 0, hitStop: 0, shake: 0, flash: 0, dyingT: 0, pulse: 0, beatT: 0 });
+}
+function startGame() {
+  audioInit();
+  resetWorld();
+  S.mode = 'play';
+  $('menu').classList.remove('show'); $('over').classList.remove('show'); $('hud').classList.add('show');
+  updateHud();
+}
+function showOver() {
+  S.mode = 'over';
+  const newBest = S.score > S.best;
+  if (newBest) { S.best = S.score; try { localStorage.setItem('fff_best', String(S.best)); } catch (e) {} }
+  $('oScore').textContent = S.score; $('oStabs').textContent = S.stabs; $('oCuts').textContent = S.cuts;
+  $('oVerdict').textContent = newBest && S.score > 0 ? 'New best score.' : 'Best: ' + S.best;
+  $('hud').classList.remove('show');
+  $('over').classList.add('show');
+  setTimeout(() => $('retryBtn').focus({ preventScroll: true }), 50);
+}
+
+$('startBtn').addEventListener('click', startGame);
+$('retryBtn').addEventListener('click', startGame);
+$('bloodChip').addEventListener('click', e => {
+  S.bloodOn = !S.bloodOn;
+  e.currentTarget.setAttribute('aria-pressed', String(S.bloodOn));
+  e.currentTarget.textContent = 'Blood: ' + (S.bloodOn ? 'on' : 'off');
+});
+$('mute').addEventListener('click', e => {
+  S.muted = !S.muted;
+  if (master) master.gain.value = S.muted ? 0 : 0.9;
+  e.currentTarget.innerHTML = S.muted ? '&#128263;' : '&#128266;';
+  e.currentTarget.setAttribute('aria-label', S.muted ? 'Sound off' : 'Sound on');
+});
+
+canvas.addEventListener('pointerdown', e => { e.preventDefault(); audioInit(); tryStab(); });
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space' || e.key === ' ') {
+    if (S.mode === 'play') { e.preventDefault(); tryStab(); }
+  } else if (e.key === 'Enter') {
+    if (S.mode === 'menu' || S.mode === 'over') { e.preventDefault(); startGame(); }
+  }
+});
+document.addEventListener('contextmenu', e => e.preventDefault());
+
+/* ---------- loop ---------- */
+let last = performance.now();
+function frame(now) {
+  const rdt = Math.min(0.05, Math.max(0, (now - last) / 1000)); last = now;
+  update(rdt); render();
+  requestAnimationFrame(frame);
+}
+resize();
+updateHud();
+requestAnimationFrame(frame);
+
+/* test hook */
+window.__fff = { S, knife, hand, FINGERS, sweep, tryStab, startGame };
+})();
+</script>
+</body>
+</html>
