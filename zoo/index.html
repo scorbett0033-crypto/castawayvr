@@ -4,19 +4,18 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;600;700;800&family=Lilita+One&display=swap">
 <style>
-/* Layout: the park map is the board; a signpost-green sidebar holds the build kit, inspector and goals. Stacks under the map on phones. */
+/* Layout: a pannable park map is the board; a signpost-green sidebar holds the build kit, inspector and zoo report. Stacks under the map on phones. */
 :root {
-  --sign: #1d3a29;        /* zoo wayfinding green */
+  --sign: #1d3a29;
   --sign-hi: #2a5139;
   --sign-line: rgba(247, 239, 216, 0.14);
   --cream: #f7efd8;
   --paper: #fffaf0;
   --ink: #1c2a21;
   --muted: #5f6d61;
-  --sun: #f4b63f;         /* signage yellow accent */
+  --sun: #f4b63f;
   --berry: #c9473b;
   --leaf: #4f9a45;
-  --line: rgba(28, 42, 33, 0.14);
   --display: "Lilita One", "Arial Rounded MT Bold", "Trebuchet MS", system-ui, sans-serif;
   --body: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
   color-scheme: dark;
@@ -24,15 +23,16 @@
 html, body { height: 100%; }
 body { background: var(--sign); color: var(--cream); font-family: var(--body); font-size: 14px; }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 button { font: inherit; color: inherit; }
 button:focus-visible { outline: 3px solid var(--sun); outline-offset: 2px; }
 
 .app {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 350px;
+  grid-template-columns: minmax(0, 1fr) 360px;
   grid-template-rows: auto 1fr;
   gap: 14px;
-  max-width: 1440px;
+  max-width: 1560px;
   margin: 0 auto;
   min-height: 100%;
   padding-block: 14px;
@@ -54,8 +54,8 @@ header { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: cente
   background: var(--sign-hi); border: 1px solid var(--sign-line); border-radius: 10px;
   padding: 6px 12px; min-width: 0; display: flex; flex-direction: column; gap: 1px;
 }
-.stat small { font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em; color: rgba(247,239,216,0.65); }
-.stat b { font-family: var(--display); font-weight: 400; font-size: 19px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.stat small { font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em; color: rgba(247,239,216,0.65); white-space: nowrap; }
+.stat b { font-family: var(--display); font-weight: 400; font-size: 19px; line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .stat b.neg { color: #ff9a8a; }
 .stars { position: relative; display: inline-block; font-size: 17px; letter-spacing: 1px; color: rgba(247,239,216,0.22); line-height: 1.1; }
 .stars-fill { position: absolute; inset: 0 auto 0 0; overflow: hidden; color: var(--sun); white-space: nowrap; }
@@ -71,14 +71,15 @@ header { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: cente
 /* ---------- Map ---------- */
 .board { position: relative; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 .mapwrap {
-  position: relative; background: #3d6b35; border-radius: 16px; padding: 8px;
-  box-shadow: inset 0 0 0 2px rgba(0,0,0,0.12), 0 10px 30px rgba(0,0,0,0.25);
-  display: flex; justify-content: center;
+  position: relative; background: #2f5a2a; border-radius: 16px; overflow: hidden;
+  box-shadow: inset 0 0 0 2px rgba(0,0,0,0.15), 0 10px 30px rgba(0,0,0,0.25);
+  height: max(420px, calc(100dvh - 330px));
 }
-canvas#map { display: block; border-radius: 10px; touch-action: manipulation; cursor: pointer; max-width: 100%; }
-canvas#map.drawing { touch-action: none; }
+canvas#map { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+canvas#map.build { cursor: crosshair; }
+canvas#map.panning { cursor: grabbing; }
 .toast {
-  position: absolute; top: 16px; left: 50%; transform: translateX(-50%) translateY(-6px);
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%) translateY(-6px);
   background: var(--paper); color: var(--ink); font-weight: 700; padding: 9px 16px; border-radius: 999px;
   box-shadow: 0 6px 20px rgba(0,0,0,0.25); opacity: 0; pointer-events: none;
   transition: opacity .2s, transform .2s; max-width: calc(100% - 32px); text-align: center; font-size: 13px;
@@ -86,18 +87,47 @@ canvas#map.drawing { touch-action: none; }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .toast.bad { background: #ffe1dc; color: #7a1f16; }
 .toast.good { background: #fff1c7; color: #5a3d00; }
-.daylabel { position: absolute; left: 18px; bottom: 16px; font-size: 11px; font-weight: 700; color: var(--ink);
-  background: rgba(255,250,240,0.85); padding: 3px 9px; border-radius: 999px; pointer-events: none; }
+.zoomctl { position: absolute; right: 10px; bottom: 10px; display: flex; flex-direction: column; gap: 6px; }
+.zoomctl button {
+  width: 40px; height: 40px; border-radius: 10px; border: 0; cursor: pointer;
+  background: rgba(255,250,240,0.94); color: var(--sign); font-weight: 800; font-size: 20px;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.25);
+}
+.zoomctl button.small { font-size: 15px; }
+.maphint {
+  position: absolute; left: 10px; bottom: 10px; max-width: min(360px, calc(100% - 70px));
+  background: rgba(29,58,41,0.86); color: var(--cream); font-size: 12px; line-height: 1.35; padding: 6px 10px; border-radius: 9px;
+  pointer-events: none;
+}
+.report {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: min(340px, calc(100% - 28px)); background: var(--paper); color: var(--ink);
+  border-radius: 16px; padding: 16px; box-shadow: 0 20px 50px rgba(0,0,0,0.45);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.report h3 { margin: 0; font-family: var(--display); font-weight: 400; font-size: 22px; color: var(--sign); }
+.report dl { margin: 0; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 5px 12px; font-size: 13.5px; }
+.report dt { color: var(--muted); }
+.report dd { margin: 0; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.report dd.pos { color: #2f7a2b; }
+.report dd.neg { color: var(--berry); }
+.report .total { border-top: 1.5px solid #e6dcbf; padding-top: 6px; font-weight: 800; color: var(--ink); }
+.report .fore { font-size: 13px; background: #f1e7cc; border-radius: 9px; padding: 7px 10px; }
 
 /* ---------- Build kit ---------- */
 .kit { background: var(--sign-hi); border: 1px solid var(--sign-line); border-radius: 14px; padding: 10px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .kit-top { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.tools { display: flex; gap: 6px; }
-.tool, .tab {
+.tools { display: flex; gap: 6px; flex-wrap: wrap; }
+.tool, .tab, .size {
   border: 1px solid var(--sign-line); background: rgba(0,0,0,0.12); border-radius: 9px; padding: 7px 11px;
   cursor: pointer; font-weight: 700; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; min-height: 36px;
 }
-.tool[aria-pressed="true"], .tab[aria-selected="true"] { background: var(--cream); color: var(--sign); border-color: var(--cream); }
+.tool[aria-pressed="true"], .tab[aria-selected="true"], .size[aria-pressed="true"] { background: var(--cream); color: var(--sign); border-color: var(--cream); }
+.size { flex-direction: column; gap: 0; padding: 5px 10px; line-height: 1.2; }
+.size small { font-size: 11px; font-weight: 600; opacity: 0.8; font-variant-numeric: tabular-nums; }
+.size:disabled { opacity: 0.4; cursor: not-allowed; }
+.sizes { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.sizes .lbl { font-size: 12px; font-weight: 700; color: rgba(247,239,216,0.8); margin-right: 2px; }
 .tabs { display: flex; gap: 6px; margin-left: auto; }
 .items { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 6px; }
 .item {
@@ -122,14 +152,17 @@ canvas#map.drawing { touch-action: none; }
 .panel h2 small { font-family: var(--body); font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: 0; }
 .panel p { margin: 0; line-height: 1.45; }
 .muted { color: var(--muted); }
-
 .insp-head { display: flex; gap: 12px; align-items: center; }
 .insp-emoji { font-size: 34px; line-height: 1; width: 48px; height: 48px; display: grid; place-items: center; background: #f1e7cc; border-radius: 12px; flex: none; }
 .insp-head h3 { margin: 0; font-family: var(--display); font-weight: 400; font-size: 20px; color: var(--ink); }
 .chip { display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 999px; background: #eadfbf; color: #5a4a22; }
-.herd { font-size: 22px; letter-spacing: 2px; min-height: 28px; }
+.chip.sick { background: #fde4de; color: #9a2f22; }
+.herd { font-size: 22px; letter-spacing: 2px; min-height: 28px; line-height: 1.3; }
 .herd .baby { font-size: 15px; }
-.meter { display: grid; grid-template-columns: 78px minmax(0,1fr) 44px; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; }
+.herd .ill { filter: saturate(0.3); }
+.meter { display: grid; grid-template-columns: 86px minmax(0,1fr) 44px; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; }
+#reportCard .meter { grid-template-columns: 118px minmax(0,1fr) 44px; }
+#reportCard { display: flex; flex-direction: column; gap: 6px; }
 .meter b { text-align: right; font-variant-numeric: tabular-nums; }
 .bar { height: 9px; background: #ece3c8; border-radius: 99px; overflow: hidden; }
 .bar i { display: block; height: 100%; width: 50%; border-radius: 99px; background: var(--leaf); transition: width .3s; }
@@ -137,8 +170,9 @@ canvas#map.drawing { touch-action: none; }
 .bar i.low { background: var(--berry); }
 .warn { font-size: 12.5px; font-weight: 700; color: #9a2f22; background: #fde4de; padding: 6px 10px; border-radius: 8px; }
 .warn:empty { display: none; }
-.note { font-size: 12.5px; color: var(--muted); }
-.thought { background: #f1e7cc; border-radius: 12px; padding: 8px 12px; font-style: italic; position: relative; }
+.note { font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+.fact { font-size: 12.5px; background: #eef3e2; color: #2c4a2a; border-radius: 9px; padding: 7px 10px; line-height: 1.4; }
+.thought { background: #f1e7cc; border-radius: 12px; padding: 8px 12px; font-style: italic; }
 .actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .btn {
   border: 0; border-radius: 9px; padding: 8px 12px; cursor: pointer; font-weight: 700; font-size: 13px;
@@ -149,14 +183,12 @@ canvas#map.drawing { touch-action: none; }
 .btn.danger.armed { background: var(--berry); color: #fff; }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .tips { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; line-height: 1.4; font-size: 13px; }
-
 .mgmt-row { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 4px 10px; }
 .mgmt-row .lbl { font-weight: 700; }
-.mgmt-row .sub { grid-column: 1 / -1; font-size: 12px; color: var(--muted); }
+.mgmt-row .sub { grid-column: 1 / -1; font-size: 12px; color: var(--muted); line-height: 1.4; }
 .stepper { display: inline-flex; align-items: center; background: #f1e7cc; border-radius: 9px; }
 .stepper button { border: 0; background: transparent; width: 36px; height: 34px; font-size: 18px; font-weight: 800; cursor: pointer; color: var(--sign); border-radius: 9px; }
 .stepper output { min-width: 44px; text-align: center; font-weight: 800; font-variant-numeric: tabular-nums; }
-
 .goals { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .goals li { display: grid; grid-template-columns: 20px minmax(0,1fr) auto; gap: 8px; align-items: center; font-size: 13px; }
 .goals .box { width: 18px; height: 18px; border-radius: 5px; box-shadow: inset 0 0 0 2px #cbbf9c; display: grid; place-items: center; font-size: 12px; color: #fff; }
@@ -164,32 +196,33 @@ canvas#map.drawing { touch-action: none; }
 .goals li.done span:nth-child(2) { color: var(--muted); text-decoration: line-through; }
 .goals .rw { font-size: 12px; font-weight: 800; color: #8a5a00; font-variant-numeric: tabular-nums; }
 .goals li.done .rw { color: var(--muted); }
-
 .news { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; font-size: 13px; line-height: 1.4; }
 .news li { display: grid; grid-template-columns: 44px minmax(0,1fr); gap: 6px; }
 .news .d { font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; padding-top: 1px; }
 
-@media (min-width: 981px) {
+@media (min-width: 1081px) {
   .side { max-height: calc(100dvh - 100px); overflow: auto; padding-right: 2px; }
 }
-@media (max-width: 980px) {
+@media (max-width: 1080px) {
   .app { grid-template-columns: minmax(0, 1fr); }
-  .brand-plate { font-size: 22px; }
+  .mapwrap { height: max(360px, 62dvh); }
 }
 @media (max-width: 620px) {
+  .brand-plate { font-size: 21px; }
+  .brand-sub { display: none; }
+  .speed { align-self: center; }
+  .stats { order: 3; width: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .stat { padding: 5px 8px; }
+  .stat small { font-size: 9px; letter-spacing: 0.06em; overflow: hidden; text-overflow: ellipsis; }
+  .stat b { font-size: 15px; }
+  .stars { font-size: 12px; letter-spacing: 0; }
+  .rating-row em { display: none; }
   .items { display: flex; overflow-x: auto; padding-bottom: 4px; scroll-snap-type: x proximity; }
   .item { flex: 0 0 96px; scroll-snap-align: start; }
   .tabs { margin-left: 0; width: 100%; }
   .tabs .tab { flex: 1; justify-content: center; }
-  .brand-sub { display: none; }
-  .speed { align-self: center; }
-  .stats { order: 3; width: 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
-  .stat { padding: 5px 8px; }
-  .stat small { font-size: 9px; letter-spacing: 0.06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .stat b { font-size: 16px; white-space: nowrap; }
-  .stars { font-size: 12px; letter-spacing: 0; }
-  .rating-row em { display: none; }
-  .mapwrap { padding: 5px; border-radius: 12px; }
+  .mapwrap { border-radius: 12px; height: max(340px, 58dvh); }
+  .maphint { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .toast, .bar i { transition: none; }
@@ -199,7 +232,7 @@ canvas#map.drawing { touch-action: none; }
 <div class="app">
   <header>
     <div class="brand">
-      <div class="brand-plate" id="zooName">Wildwood Zoo</div>
+      <div class="brand-plate">Wildwood Zoo</div>
       <div class="brand-sub">Open daily<br>9 am – 6 pm</div>
     </div>
     <div class="stats">
@@ -207,11 +240,12 @@ canvas#map.drawing { touch-action: none; }
       <div class="stat"><small>Zoo rating</small>
         <div class="rating-row"><span class="stars" aria-hidden="true">★★★★★<span class="stars-fill" id="sStars">★★★★★</span></span><em id="sRating">0.0</em></div>
       </div>
-      <div class="stat"><small>In the park</small><b id="sVisitors">0</b></div>
+      <div class="stat"><small>Guests</small><b id="sVisitors">0</b></div>
       <div class="stat"><small id="sDay">Day 1</small><b id="sClock">9:00 am</b></div>
+      <div class="stat"><small id="sWeatherName">Sunny</small><b id="sWeather">☀️ 22°</b></div>
     </div>
     <div class="speed" role="group" aria-label="Game speed">
-      <button id="sp0" aria-pressed="false" title="Pause">❚❚</button>
+      <button id="sp0" aria-pressed="false" title="Pause (space)">❚❚</button>
       <button id="sp1" aria-pressed="true" title="Normal speed">▶</button>
       <button id="sp3" aria-pressed="false" title="Fast">▶▶</button>
     </div>
@@ -220,13 +254,20 @@ canvas#map.drawing { touch-action: none; }
   <div class="board">
     <div class="mapwrap" id="mapwrap">
       <canvas id="map" aria-label="Zoo map"></canvas>
+      <div class="maphint" id="maphint">Drag to look around. Scroll or pinch to zoom.</div>
+      <div class="zoomctl">
+        <button id="zIn" aria-label="Zoom in">+</button>
+        <button id="zOut" aria-label="Zoom out">−</button>
+        <button id="zFit" class="small" aria-label="Show the whole zoo">⤢</button>
+      </div>
       <div class="toast" id="toast" role="status"></div>
+      <div class="report" id="report" hidden></div>
     </div>
 
     <section class="kit" aria-label="Build">
       <div class="kit-top">
         <div class="tools">
-          <button class="tool" data-tool="inspect" aria-pressed="true">👆 Inspect</button>
+          <button class="tool" data-tool="inspect" aria-pressed="true">👆 Look</button>
           <button class="tool" data-tool="path" aria-pressed="false">🟫 Path</button>
           <button class="tool" data-tool="bulldoze" aria-pressed="false">🚜 Remove</button>
         </div>
@@ -237,6 +278,7 @@ canvas#map.drawing { touch-action: none; }
         </div>
       </div>
       <div class="items" id="items"></div>
+      <div class="sizes" id="sizes" hidden></div>
       <div class="hint" id="hint"></div>
     </section>
   </div>
@@ -245,21 +287,32 @@ canvas#map.drawing { touch-action: none; }
     <section class="panel" id="inspector" aria-live="polite"></section>
 
     <section class="panel">
+      <h2>Zoo report card</h2>
+      <div id="reportCard"></div>
+      <p class="note" id="arrivals"></p>
+    </section>
+
+    <section class="panel">
       <h2>Running the zoo</h2>
       <div class="mgmt-row">
-        <span class="lbl">Ticket price</span>
+        <span class="lbl">Adult ticket</span>
         <span class="stepper"><button data-m="price-" aria-label="Lower ticket price">−</button><output id="mPrice">$12</output><button data-m="price+" aria-label="Raise ticket price">+</button></span>
         <span class="sub" id="mPriceSub"></span>
       </div>
       <div class="mgmt-row">
         <span class="lbl">Zookeepers</span>
-        <span class="stepper"><button data-m="keep-" aria-label="Fire a zookeeper">−</button><output id="mKeep">0</output><button data-m="keep+" aria-label="Hire a zookeeper">+</button></span>
-        <span class="sub">$150 a day each. A keeper feeds up to 4 exhibits automatically.</span>
+        <span class="stepper"><button data-m="keeper-" aria-label="Let a zookeeper go">−</button><output id="mKeeper">0</output><button data-m="keeper+" aria-label="Hire a zookeeper">+</button></span>
+        <span class="sub">$150 a day. Walks to hungry or dirty exhibits to feed animals and muck out.</span>
       </div>
       <div class="mgmt-row">
         <span class="lbl">Janitors</span>
-        <span class="stepper"><button data-m="jan-" aria-label="Fire a janitor">−</button><output id="mJan">0</output><button data-m="jan+" aria-label="Hire a janitor">+</button></span>
-        <span class="sub">$100 a day each. Janitors sweep up litter on the paths.</span>
+        <span class="stepper"><button data-m="janitor-" aria-label="Let a janitor go">−</button><output id="mJanitor">0</output><button data-m="janitor+" aria-label="Hire a janitor">+</button></span>
+        <span class="sub">$100 a day. Sweeps litter off the paths.</span>
+      </div>
+      <div class="mgmt-row">
+        <span class="lbl">Vets</span>
+        <span class="stepper"><button data-m="vet-" aria-label="Let a vet go">−</button><output id="mVet">0</output><button data-m="vet+" aria-label="Hire a vet">+</button></span>
+        <span class="sub">$220 a day. Treats sick animals before they get worse. $60 medicine per visit.</span>
       </div>
     </section>
 
@@ -283,76 +336,111 @@ canvas#map.drawing { touch-action: none; }
 /* =========================================================
    DATA
 ========================================================= */
-const COLS = 18, ROWS = 12, DAY = 60, PEN = 300, CAP = 4;
-const GATE = { x: 9, y: 11 };
-const SAVE_KEY = 'wildwood-zoo-v1';
+const COLS = 40, ROWS = 28, BT = 64;
+const GATE = { x: 20, y: 27 }, GI = GATE.y * COLS + GATE.x;
+const OPEN = 90, NIGHT = 24, CYCLE = OPEN + NIGHT;
+const SIZES = [3, 4, 5, 6, 7];
+const SAVE_KEY = 'wildwood-zoo-v2';
 
 const HAB = {
-  meadow:  { name: 'Meadow',       a: '#a9d46f', b: '#93c45a', fc: '#f4efa0', fx: 'dots' },
-  wetland: { name: 'Wetland',      a: '#8ccdb2', b: '#6fb89c', fc: '#4ea6c9', fx: 'water' },
-  arctic:  { name: 'Ice floe',     a: '#eaf4f8', b: '#cfe4ee', fc: '#9cc6dc', fx: 'ice' },
-  outback: { name: 'Outback',      a: '#e39a5d', b: '#cf8045', fc: '#f4c590', fx: 'rocks' },
-  jungle:  { name: 'Jungle',       a: '#4b9a4f', b: '#3a8240', fc: '#6fc05c', fx: 'leaves' },
-  savanna: { name: 'Savanna',      a: '#e6c76d', b: '#d4b052', fc: '#b3933a', fx: 'grass' },
-  bamboo:  { name: 'Bamboo grove', a: '#93d17c', b: '#7cbe66', fc: '#4c9a3d', fx: 'bamboo' },
+  meadow:  { name: 'Meadow',       a: '#a9d46f', b: '#93c45a', fc: '#f4efa0', fx: 'dots',   pool: 'small' },
+  wetland: { name: 'Wetland',      a: '#8ccdb2', b: '#6fb89c', fc: '#4ea6c9', fx: 'reeds',  pool: 'big' },
+  arctic:  { name: 'Ice floe',     a: '#eaf4f8', b: '#cfe4ee', fc: '#9cc6dc', fx: 'ice',    pool: 'big' },
+  outback: { name: 'Outback',      a: '#e39a5d', b: '#cf8045', fc: '#f4c590', fx: 'rocks',  pool: 'small' },
+  jungle:  { name: 'Jungle',       a: '#4b9a4f', b: '#3a8240', fc: '#6fc05c', fx: 'leaves', pool: 'small' },
+  savanna: { name: 'Savanna',      a: '#e6c76d', b: '#d4b052', fc: '#b3933a', fx: 'grass',  pool: 'small' },
+  bamboo:  { name: 'Bamboo grove', a: '#93d17c', b: '#7cbe66', fc: '#4c9a3d', fx: 'bamboo', pool: 'small' },
 };
 
+// space: tiles of pen needed per animal. min: smallest pen side. social: herd wants company, solo prefers being alone.
 const SPECIES = [
-  { id: 'rabbit',   name: 'Rabbits',      one: 'rabbit',     e: '🐇', hab: 'meadow',  cost: 250,  star: 0,   appeal: 1.0, food: 4,  size: 0.6 },
-  { id: 'flamingo', name: 'Flamingos',    one: 'flamingo',   e: '🦩', hab: 'wetland', cost: 450,  star: 0,   appeal: 1.6, food: 6,  size: 0.7 },
-  { id: 'penguin',  name: 'Penguins',     one: 'penguin',    e: '🐧', hab: 'arctic',  cost: 700,  star: 1,   appeal: 2.2, food: 8,  size: 0.6 },
-  { id: 'kangaroo', name: 'Kangaroos',    one: 'kangaroo',   e: '🦘', hab: 'outback', cost: 900,  star: 1,   appeal: 2.4, food: 9,  size: 0.75 },
-  { id: 'monkey',   name: 'Monkeys',      one: 'monkey',     e: '🐒', hab: 'jungle',  cost: 1100, star: 2,   appeal: 3.0, food: 10, size: 0.65 },
-  { id: 'zebra',    name: 'Zebras',       one: 'zebra',      e: '🦓', hab: 'savanna', cost: 1300, star: 2,   appeal: 3.0, food: 11, size: 0.8 },
-  { id: 'croc',     name: 'Crocodiles',   one: 'crocodile',  e: '🐊', hab: 'wetland', cost: 1700, star: 2.5, appeal: 3.4, food: 14, size: 0.8 },
-  { id: 'giraffe',  name: 'Giraffes',     one: 'giraffe',    e: '🦒', hab: 'savanna', cost: 2200, star: 2.5, appeal: 4.0, food: 16, size: 0.9 },
-  { id: 'polar',    name: 'Polar bears',  one: 'polar bear', e: '🐻‍❄️', hab: 'arctic', cost: 2800, star: 3,   appeal: 4.4, food: 20, size: 0.85 },
-  { id: 'gorilla',  name: 'Gorillas',     one: 'gorilla',    e: '🦍', hab: 'jungle',  cost: 3200, star: 3,   appeal: 4.6, food: 20, size: 0.85 },
-  { id: 'lion',     name: 'Lions',        one: 'lion',       e: '🦁', hab: 'savanna', cost: 3800, star: 3.5, appeal: 5.2, food: 24, size: 0.8 },
-  { id: 'elephant', name: 'Elephants',    one: 'elephant',   e: '🐘', hab: 'savanna', cost: 4500, star: 3.5, appeal: 5.6, food: 28, size: 0.95 },
-  { id: 'tiger',    name: 'Tigers',       one: 'tiger',      e: '🐅', hab: 'jungle',  cost: 5200, star: 4,   appeal: 6.0, food: 28, size: 0.9 },
-  { id: 'panda',    name: 'Giant pandas', one: 'panda',      e: '🐼', hab: 'bamboo',  cost: 7000, star: 4.3, appeal: 7.5, food: 30, size: 0.85 },
+  { id: 'rabbit',   name: 'Rabbits',      one: 'rabbit',     e: '🐇', hab: 'meadow',  cost: 250,  star: 0,   appeal: 1.0, food: 4,  space: 2, min: 3, social: 'herd', size: 0.55, spd: 0.8,
+    fact: 'Rabbits can see almost all the way around them without turning their heads.' },
+  { id: 'flamingo', name: 'Flamingos',    one: 'flamingo',   e: '🦩', hab: 'wetland', cost: 450,  star: 0,   appeal: 1.6, food: 6,  space: 2, min: 3, social: 'herd', size: 0.65, spd: 0.45,
+    fact: 'Flamingos are pink because of the shrimp and algae they eat.' },
+  { id: 'penguin',  name: 'Penguins',     one: 'penguin',    e: '🐧', hab: 'arctic',  cost: 700,  star: 1,   appeal: 2.2, food: 8,  space: 2, min: 3, social: 'herd', size: 0.55, spd: 0.4,
+    fact: 'A gland above a penguin’s eyes filters salt out of the seawater it drinks.' },
+  { id: 'kangaroo', name: 'Kangaroos',    one: 'kangaroo',   e: '🦘', hab: 'outback', cost: 900,  star: 1.5, appeal: 2.4, food: 9,  space: 4, min: 4, social: 'herd', size: 0.7,  spd: 0.9,
+    fact: 'A red kangaroo can cover 8 metres in a single hop.' },
+  { id: 'monkey',   name: 'Capuchins',    one: 'capuchin',   e: '🐒', hab: 'jungle',  cost: 1100, star: 1.5, appeal: 3.0, food: 10, space: 3, min: 4, social: 'herd', size: 0.6,  spd: 0.85,
+    fact: 'Capuchin monkeys use stones as hammers to crack open nuts.' },
+  { id: 'zebra',    name: 'Zebras',       one: 'zebra',      e: '🦓', hab: 'savanna', cost: 1300, star: 2,   appeal: 3.0, food: 11, space: 5, min: 4, social: 'herd', size: 0.75, spd: 0.6,
+    fact: 'No two zebras have the same stripe pattern.' },
+  { id: 'croc',     name: 'Crocodiles',   one: 'crocodile',  e: '🐊', hab: 'wetland', cost: 1700, star: 2,   appeal: 3.4, food: 8,  space: 5, min: 4, social: 'pair', size: 0.8,  spd: 0.25,
+    fact: 'A crocodile can go months between big meals.' },
+  { id: 'giraffe',  name: 'Giraffes',     one: 'giraffe',    e: '🦒', hab: 'savanna', cost: 2200, star: 2.5, appeal: 4.0, food: 16, space: 6, min: 5, social: 'herd', size: 0.9,  spd: 0.45,
+    fact: 'Giraffes may sleep as little as 30 minutes a day.' },
+  { id: 'polar',    name: 'Polar bears',  one: 'polar bear', e: '🐻‍❄️', hab: 'arctic', cost: 2800, star: 2.5, appeal: 4.4, food: 20, space: 8, min: 5, social: 'solo', size: 0.85, spd: 0.4,
+    fact: 'Polar bears have black skin under their see-through fur.' },
+  { id: 'gorilla',  name: 'Gorillas',     one: 'gorilla',    e: '🦍', hab: 'jungle',  cost: 3200, star: 3,   appeal: 4.6, food: 18, space: 6, min: 5, social: 'herd', size: 0.85, spd: 0.35,
+    fact: 'Gorillas share about 98% of their DNA with humans.' },
+  { id: 'lion',     name: 'Lions',        one: 'lion',       e: '🦁', hab: 'savanna', cost: 3800, star: 3,   appeal: 5.2, food: 22, space: 7, min: 5, social: 'herd', size: 0.8,  spd: 0.4,
+    fact: 'A lion’s roar can be heard up to 8 km away.' },
+  { id: 'elephant', name: 'Elephants',    one: 'elephant',   e: '🐘', hab: 'savanna', cost: 4500, star: 3.5, appeal: 5.6, food: 30, space: 9, min: 6, social: 'herd', size: 1.0,  spd: 0.3,
+    fact: 'Elephants spend up to 16 hours a day eating.' },
+  { id: 'tiger',    name: 'Tigers',       one: 'tiger',      e: '🐅', hab: 'jungle',  cost: 5200, star: 3.5, appeal: 6.0, food: 24, space: 9, min: 5, social: 'solo', size: 0.9,  spd: 0.45,
+    fact: 'Unlike most cats, tigers love to swim.' },
+  { id: 'panda',    name: 'Giant pandas', one: 'giant panda', e: '🐼', hab: 'bamboo', cost: 7000, star: 4,   appeal: 7.5, food: 26, space: 7, min: 5, social: 'solo', size: 0.85, spd: 0.3,
+    fact: 'A giant panda can eat around 38 kg of bamboo in a day.' },
 ];
 const SP = Object.fromEntries(SPECIES.map(s => [s.id, s]));
 
 const FAC = {
-  snack:    { name: 'Snack stand',  e: '🍔', cost: 250, up: 20, ring: '#c9473b', star: 0,   tip: 'Hungry visitors buy a $7 meal here.' },
-  drink:    { name: 'Drinks stand', e: '🥤', cost: 200, up: 15, ring: '#3d7ae0', star: 0,   tip: 'Thirsty visitors buy a $4 drink here.' },
-  toilet:   { name: 'Restrooms',    e: '🚻', cost: 300, up: 20, ring: '#2a5139', star: 0,   tip: 'Visitors get grumpy when they can’t find one.' },
-  gift:     { name: 'Gift shop',    e: '🎁', cost: 600, up: 30, ring: '#8e5bd6', star: 1.5, tip: 'Cheerful visitors buy a $12 balloon on the way past.' },
-  bin:      { name: 'Trash bin',    e: '🗑️', cost: 40,  up: 0,  ring: '#6b766c', star: 0,   tip: 'Visitors use a bin within 2 tiles instead of littering.' },
-  tree:     { name: 'Tree',         e: '🌳', cost: 50,  up: 0,  decor: 2, star: 0, tip: 'Scenery cheers up nearby animals and visitors.' },
-  flowers:  { name: 'Flower bed',   e: '🌷', cost: 30,  up: 0,  decor: 1, star: 0, tip: 'A splash of colour beside the paths.' },
-  bench:    { name: 'Bench',        e: '🪑', cost: 80,  up: 0,  decor: 1, ring: '#8a5a32', star: 0, tip: 'Tired visitors sit down and cheer up.' },
-  fountain: { name: 'Fountain',     e: '⛲', cost: 700, up: 10, decor: 5, ring: '#3aa0c8', star: 2, tip: 'A centrepiece that lifts the whole zoo’s scenery score.' },
+  snack:    { name: 'Snack stand',  e: '🍔', cost: 250, up: 20, ring: '#c9473b', star: 0,   light: 1.4, tip: 'Hungry guests buy a $7 meal here.' },
+  drink:    { name: 'Drinks stand', e: '🥤', cost: 200, up: 15, ring: '#3d7ae0', star: 0,   light: 1.4, tip: 'Thirsty guests buy a $4 drink. Busy on hot days.' },
+  toilet:   { name: 'Restrooms',    e: '🚻', cost: 300, up: 20, ring: '#2a5139', star: 0,   light: 1.2, tip: 'Guests get grumpy fast when they can’t find one.' },
+  gift:     { name: 'Gift shop',    e: '🎁', cost: 600, up: 30, ring: '#8e5bd6', star: 1.5, light: 1.6, tip: 'Cheerful guests buy a $12 balloon on the way out.' },
+  bin:      { name: 'Trash bin',    e: '🗑️', cost: 40,  up: 0,  ring: '#6b766c', star: 0,   tip: 'Guests use a bin within 3 tiles instead of littering.' },
+  tree:     { name: 'Tree',         e: '🌳', cost: 50,  up: 0,  decor: 2, star: 0, paint: true, tip: 'Shade and scenery. Cheers up nearby animals and guests.' },
+  flowers:  { name: 'Flower bed',   e: '🌷', cost: 30,  up: 0,  decor: 1, star: 0, paint: true, tip: 'A splash of colour beside the paths.' },
+  bench:    { name: 'Bench',        e: '🪑', cost: 80,  up: 0,  decor: 1, ring: '#8a5a32', star: 0, tip: 'Tired guests sit down, rest their feet and cheer up.' },
+  lamp:     { name: 'Lamp post',    e: '💡', cost: 90,  up: 2,  decor: 1, star: 0, light: 3.2, tip: 'Lights the paths at dusk so late guests feel safe.' },
+  fountain: { name: 'Fountain',     e: '⛲', cost: 700, up: 10, decor: 5, ring: '#3aa0c8', star: 2, tip: 'A centrepiece that lifts the scenery score for the whole zoo.' },
+  rock:     { name: 'Boulder',      e: '🪨', cost: 0,   up: 0,  decor: 1, natural: true, tip: 'A natural boulder. Building over it clears it for $15.' },
 };
+const CLEARABLE = new Set(['tree', 'flowers', 'rock']);
 const TABS = {
   animals: SPECIES.map(s => 'ex:' + s.id),
   facilities: ['fac:snack', 'fac:drink', 'fac:toilet', 'fac:gift', 'fac:bin'],
-  scenery: ['fac:tree', 'fac:flowers', 'fac:bench', 'fac:fountain'],
+  scenery: ['fac:tree', 'fac:flowers', 'fac:bench', 'fac:lamp', 'fac:fountain'],
+};
+const WEATHER = {
+  sunny:  { e: '☀️', name: 'Sunny',    vis: 1.0,  thirst: 1.0, mood: 0,     lo: 18, hi: 26 },
+  cloudy: { e: '⛅', name: 'Cloudy',   vis: 0.9,  thirst: 0.85, mood: 0,    lo: 13, hi: 19 },
+  rain:   { e: '🌧️', name: 'Rain',     vis: 0.5,  thirst: 0.7, mood: -0.25, lo: 10, hi: 16 },
+  heat:   { e: '🌡️', name: 'Heatwave', vis: 1.05, thirst: 1.9, mood: -0.08, lo: 30, hi: 36 },
+};
+const STAFF = {
+  keeper:  { name: 'Zookeeper', wage: 150, shirt: '#6f7f35', hat: '#c9a35a', e: '🧑‍🌾' },
+  janitor: { name: 'Janitor',   wage: 100, shirt: '#2f6fb0', hat: '#1e4a7a', e: '🧹' },
+  vet:     { name: 'Vet',       wage: 220, shirt: '#f4f4f4', hat: '#d33b3b', e: '🩺' },
 };
 
 const GOALS = [
   { id: 'ex2',   text: 'Open a second exhibit',              reward: 400,   test: () => S.ex.length >= 2 },
-  { id: 'v25',   text: 'Welcome 25 visitors',                reward: 400,   test: () => S.totals.visitors >= 25 },
+  { id: 'v50',   text: 'Welcome 50 guests',                  reward: 400,   test: () => S.totals.visitors >= 50 },
   { id: 'needs', text: 'Build a drinks stand and restrooms', reward: 300,   test: () => facCount('drink') > 0 && facCount('toilet') > 0 },
   { id: 'sp3',   text: 'Keep 3 different species',           reward: 800,   test: () => speciesCount() >= 3 },
-  { id: 'staff', text: 'Hire a zookeeper and a janitor',     reward: 500,   test: () => S.keepers > 0 && S.janitors > 0 },
+  { id: 'staff', text: 'Hire a zookeeper and a janitor',     reward: 500,   test: () => staffCount('keeper') > 0 && staffCount('janitor') > 0 },
   { id: 'baby',  text: 'Welcome a baby animal',              reward: 1000,  test: () => S.totals.babies >= 1 },
   { id: 'r2',    text: 'Reach a 2-star rating',              reward: 1200,  test: () => S.rating >= 2 },
-  { id: 'v300',  text: 'Welcome 300 visitors',               reward: 1500,  test: () => S.totals.visitors >= 300 },
+  { id: 'big',   text: 'Build a 6×6 exhibit or bigger',      reward: 1000,  test: () => S.ex.some(e => e.w >= 6) },
+  { id: 'v600',  text: 'Welcome 600 guests',                 reward: 1500,  test: () => S.totals.visitors >= 600 },
   { id: 'sp6',   text: 'Keep 6 different species',           reward: 2500,  test: () => speciesCount() >= 6 },
   { id: 'r3',    text: 'Reach a 3-star rating',              reward: 3000,  test: () => S.rating >= 3 },
-  { id: 'earn',  text: 'Earn $25,000 in total',              reward: 4000,  test: () => S.totals.earned >= 25000 },
+  { id: 'earn',  text: 'Earn $40,000 in total',              reward: 4000,  test: () => S.totals.earned >= 40000 },
   { id: 'r4',    text: 'Reach a 4-star rating',              reward: 6000,  test: () => S.rating >= 4 },
   { id: 'panda', text: 'Bring giant pandas to the zoo',      reward: 10000, test: () => S.ex.some(e => e.sp === 'panda') },
   { id: 'all',   text: 'Keep every species',                 reward: 20000, test: () => speciesCount() >= SPECIES.length },
 ];
 
-const NAMES = ['Ava','Leo','Maya','Noah','Zoe','Eli','Ivy','Omar','Ruby','Kai','Nora','Sam','Lila','Theo','Priya','Jun','Mila','Ezra','Anya','Finn','Rosa','Hugo','Iris','Milo','Amara','Tomas','Yuki','Dev','Hana','Felix'];
-const SHIRTS = ['#e85d4a','#3d7ae0','#f2b33d','#8e5bd6','#2fa58f','#e57bb0','#ff8f3a','#4a4a8c','#ffffff','#5bbbe0'];
+const FIRST = ['Ava','Leo','Maya','Noah','Zoe','Eli','Ivy','Omar','Ruby','Kai','Nora','Sam','Lila','Theo','Priya','Jun','Mila','Ezra','Anya','Finn','Rosa','Hugo','Iris','Milo','Amara','Tomas','Yuki','Dev','Hana','Felix'];
+const SURN = ['Patel','Okafor','Garcia','Nguyen','Smith','Kowalski','Haddad','Tanaka','Silva','Müller','Johnson','Ali','Rossi','Kim','Novak','Dubois','Mensah','Larsen','Chen','O’Brien','Reyes','Ivanova'];
+const SHIRTS = ['#e85d4a','#3d7ae0','#f2b33d','#8e5bd6','#2fa58f','#e57bb0','#ff8f3a','#4a4a8c','#ffffff','#5bbbe0','#b5cf3a','#333a45'];
 const SKINS = ['#f6d3b3','#e8b58f','#c68a5e','#8d5a3b','#5e3b25'];
+const HAIR = ['#2b1d14','#5a3a22','#a0662f','#e2c07a','#1a1a1a','#7a2f1f','#c9c9c9'];
 const BALLOONS = ['#e85d4a','#f2b33d','#3d7ae0','#8e5bd6','#2fa58f','#e57bb0'];
+const UMBRELLAS = ['#e85d4a','#3d7ae0','#f2b33d','#2fa58f','#8e5bd6','#1d3a29'];
 
 /* =========================================================
    HELPERS
@@ -362,6 +450,8 @@ const rnd = (a, b) => a + Math.random() * (b - a);
 const pick = arr => arr[Math.floor(Math.random() * arr.length)];
 const clamp = (v, a = 0, b = 100) => Math.max(a, Math.min(b, v));
 const fmt = n => (n < 0 ? '−$' : '$') + Math.abs(Math.round(n)).toLocaleString('en-US');
+const N4 = [[1,0],[-1,0],[0,1],[0,-1]];
+const N8 = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
 function hash(x, y, s = 0) {
   let n = Math.imul(x, 374761393) + Math.imul(y, 668265263) + Math.imul(s, 1442695041);
   n = Math.imul(n ^ (n >>> 13), 1274126177);
@@ -375,43 +465,87 @@ function seeded(seed) {
 /* =========================================================
    STATE
 ========================================================= */
-let S;            // saved state
-let visitors = []; // runtime only
-let nextVid = 1;
+let S;
+let parties = [];
+let staff = [];
+let nextPid = 1;
 const animPos = new Map();
-let dist = new Int16Array(COLS * ROWS);
+let reach = new Uint8Array(COLS * ROWS);
+
+function rollWeather(day) {
+  const r = Math.random();
+  const kind = day === 1 ? 'sunny' : r < 0.16 ? 'rain' : r < 0.27 ? 'heat' : r < 0.52 ? 'cloudy' : 'sunny';
+  const w = WEATHER[kind];
+  return { kind, temp: Math.round(rnd(w.lo, w.hi)) };
+}
 
 function newState() {
+  const seed = (Math.random() * 1e9) | 0;
+  const r = seeded(seed);
   const grid = Array.from({ length: COLS * ROWS }, () => ({ k: 'grass' }));
-  const set = (x, y, o) => { grid[y * COLS + x] = o; };
-  [[1,1],[2,1],[3,1],[1,2],[2,2],[3,2],[4,2],[2,3],[3,3]].forEach(([x, y]) => set(x, y, { k: 'water' }));
-  for (let x = 4; x <= 14; x++) set(x, 7, { k: 'path' });
-  for (let y = 8; y <= 10; y++) set(9, y, { k: 'path' });
+  const idx = (x, y) => y * COLS + x;
+  const set = (x, y, o) => { if (x >= 0 && y >= 0 && x < COLS && y < ROWS) grid[idx(x, y)] = o; };
+  const get = (x, y) => (x < 0 || y < 0 || x >= COLS || y >= ROWS) ? null : grid[idx(x, y)];
+  const protectedZone = (x, y) => x >= 10 && x <= 30 && y >= 12;
+
+  // lake in the north-east
+  const lake = { x: 31 + r() * 3, y: 5.5 + r() * 1.5, rx: 5.5 + r() * 1.5, ry: 3.2 + r() * 0.8 };
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    const dx = (x + 0.5 - lake.x) / lake.rx, dy = (y + 0.5 - lake.y) / lake.ry;
+    if (dx * dx + dy * dy < 0.85 + hash(x, y, seed & 1023) * 0.3) set(x, y, { k: 'water' });
+  }
+  // pond in the south-west
+  const pond = { x: 5.5 + r() * 2, y: 20.5 + r() * 2 };
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    const d = Math.hypot(x + 0.5 - pond.x, (y + 0.5 - pond.y) * 1.2);
+    if (d < 1.9 + hash(x, y, 9) * 0.6) set(x, y, { k: 'water' });
+  }
+  // woods
+  const g = () => (r() + r() + r() - 1.5) * 2.4;
+  const clusters = [[4, 4], [12, 3], [3, 12], [22, 4], [37, 16], [36, 24], [8, 26], [33, 13]];
+  for (const [cx, cy] of clusters) {
+    for (let i = 0; i < 26; i++) {
+      const x = Math.round(cx + g()), y = Math.round(cy + g());
+      const c = get(x, y);
+      if (c && c.k === 'grass' && !protectedZone(x, y)) set(x, y, { k: 'am', a: 'tree', wild: true });
+    }
+  }
+  for (let i = 0; i < 18; i++) {
+    const x = Math.floor(r() * COLS), y = Math.floor(r() * ROWS);
+    const c = get(x, y);
+    if (c && c.k === 'grass' && !protectedZone(x, y)) set(x, y, { k: 'am', a: 'rock' });
+  }
+  // starter paths: entrance avenue and a loop
+  for (let y = 20; y <= 26; y++) set(20, y, { k: 'path' });
+  for (let x = 12; x <= 28; x++) { set(x, 20, { k: 'path' }); set(x, 14, { k: 'path' }); }
+  for (let y = 14; y <= 20; y++) { set(12, y, { k: 'path' }); set(28, y, { k: 'path' }); }
   set(GATE.x, GATE.y, { k: 'gate' });
-  [[0,5],[0,9],[5,10],[6,1],[12,2],[16,1],[17,5],[16,9],[14,10],[7,4],[1,7]].forEach(([x, y]) => set(x, y, { k: 'am', a: 'tree' }));
-  set(8, 11, { k: 'am', a: 'flowers' });
-  set(10, 11, { k: 'am', a: 'flowers' });
-  set(8, 10, { k: 'am', a: 'snack', earned: 0 });
-  set(8, 8, { k: 'am', a: 'bin' });
+  // entrance plaza
+  set(19, 26, { k: 'am', a: 'flowers' }); set(21, 26, { k: 'am', a: 'flowers' });
+  set(19, 24, { k: 'am', a: 'lamp' }); set(21, 25, { k: 'am', a: 'lamp' });
+  set(19, 22, { k: 'am', a: 'snack', earned: 0 });
+  set(19, 21, { k: 'am', a: 'bin' });
+  set(13, 19, { k: 'am', a: 'tree' }); set(27, 15, { k: 'am', a: 'tree' }); set(16, 13, { k: 'am', a: 'tree' }); set(24, 13, { k: 'am', a: 'tree' });
+
   const st = {
-    v: 1, money: 2000, day: 1, t: 4, grid, ex: [], nextId: 2, price: 12, keepers: 0, janitors: 0,
-    rating: 1.2, sat: [], goals: {}, news: [], totals: { visitors: 0, earned: 0, babies: 0 },
-    today: { tickets: 0, sales: 0, costs: 0, visitors: 0 },
+    v: 2, seed, money: 3000, day: 1, t: 3, grid, ex: [], nextId: 2, price: 12,
+    staff: { keeper: 0, janitor: 0, vet: 0 },
+    rating: 1.0, sat: [], goals: {}, news: [], totals: { visitors: 0, earned: 0, babies: 0 },
+    today: { tickets: 0, sales: 0, care: 0, visitors: 0, startRating: 1.0 },
+    weather: rollWeather(1), tomorrow: rollWeather(2), lastReport: null,
   };
-  st.ex.push({ id: 1, sp: 'rabbit', x: 10, y: 8, animals: [{ baby: false, age: 5 }, { baby: false, age: 5 }], food: 85, hap: 72 });
-  for (let y = 8; y < 11; y++) for (let x = 10; x < 13; x++) set(x, y, { k: 'ex', id: 1 });
-  st.news.unshift({ d: 1, text: 'Welcome to Wildwood Zoo! Two rabbits have moved in. Build more exhibits beside the paths to pull in a crowd.' });
+  const ex = { id: 1, sp: 'rabbit', x: 21, y: 21, w: 3, h: 3, animals: [{ baby: false, age: 5 }, { baby: false, age: 5 }, { baby: false, age: 5 }], food: 85, dirt: 10, health: 95, hap: 72 };
+  st.ex.push(ex);
+  for (let y = ex.y; y < ex.y + ex.h; y++) for (let x = ex.x; x < ex.x + ex.w; x++) set(x, y, { k: 'ex', id: 1 });
+  st.news.unshift({ d: 1, text: 'Welcome to Wildwood Zoo! Three rabbits have moved in beside the entrance. Build exhibits along the paths to draw a crowd.' });
   return st;
 }
 
-function serialize() {
-  return JSON.stringify(S);
-}
-function save() {
-  try { localStorage.setItem(SAVE_KEY, serialize()); } catch (e) { /* storage unavailable */ }
-}
+function serialize() { return JSON.stringify(S); }
+function save() { try { localStorage.setItem(SAVE_KEY, serialize()); } catch (e) { /* storage unavailable */ } }
 function loadSaved(data) {
-  const tryParse = str => { try { const o = JSON.parse(str); return o && o.v === 1 && Array.isArray(o.grid) && o.grid.length === COLS * ROWS ? o : null; } catch (e) { return null; } };
+  const ok = o => o && o.v === 2 && Array.isArray(o.grid) && o.grid.length === COLS * ROWS;
+  const tryParse = str => { try { const o = JSON.parse(str); return ok(o) ? o : null; } catch (e) { return null; } };
   if (data && typeof data.state === 'string') { const o = tryParse(data.state); if (o) return o; }
   try { const str = localStorage.getItem(SAVE_KEY); if (str) { const o = tryParse(str); if (o) return o; } } catch (e) {}
   return null;
@@ -419,121 +553,164 @@ function loadSaved(data) {
 
 const cell = (x, y) => (x < 0 || y < 0 || x >= COLS || y >= ROWS) ? null : S.grid[y * COLS + x];
 const setCell = (x, y, o) => { S.grid[y * COLS + x] = o; };
-const walkable = c => c && (c.k === 'path' || c.k === 'gate');
+const walkable = c => !!c && (c.k === 'path' || c.k === 'gate');
+const staffPass = c => !!c && (c.k === 'path' || c.k === 'gate' || c.k === 'grass' || (c.k === 'am' && CLEARABLE.has(c.a) && c.a !== 'tree'));
 const getEx = id => S.ex.find(e => e.id === id);
 const facCount = a => S.grid.reduce((n, c) => n + (c.k === 'am' && c.a === a ? 1 : 0), 0);
-const speciesCount = () => new Set(S.ex.map(e => e.sp)).size;
-const N4 = [[1,0],[-1,0],[0,1],[0,-1]];
-const N8 = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+const speciesCount = () => new Set(S.ex.filter(e => e.animals.length).map(e => e.sp)).size;
+const staffCount = role => S.staff[role] || 0;
+const isOpen = () => S.t < OPEN;
+const capacity = (sp, w, h) => Math.max(1, Math.floor(w * h / sp.space));
+const penCost = s => 100 + s * s * 35;
+const exUpkeep = ex => ex.w * ex.h * 2;
 
-function computeDist() {
-  dist = new Int16Array(COLS * ROWS).fill(-1);
-  const q = [[GATE.x, GATE.y]];
-  dist[GATE.y * COLS + GATE.x] = 0;
-  while (q.length) {
-    const [x, y] = q.shift();
-    for (const [dx, dy] of N4) {
-      const nx = x + dx, ny = y + dy, c = cell(nx, ny);
-      if (walkable(c) && dist[ny * COLS + nx] < 0) { dist[ny * COLS + nx] = dist[y * COLS + x] + 1; q.push([nx, ny]); }
+/* ---------- path search ---------- */
+const QU = new Int32Array(COLS * ROWS), PREV = new Int32Array(COLS * ROWS), MARK = new Uint32Array(COLS * ROWS);
+let stamp = 1;
+function bfs(start, pass, goal) {
+  stamp++;
+  let h = 0, t = 0;
+  QU[t++] = start; MARK[start] = stamp; PREV[start] = -1;
+  while (h < t) {
+    const i = QU[h++];
+    if (goal(i)) {
+      const route = [];
+      let j = i;
+      while (j !== -1) { route.push(j); j = PREV[j]; }
+      route.reverse(); route.shift();
+      return route;
+    }
+    const x = i % COLS, y = (i / COLS) | 0;
+    for (let k = 0; k < 4; k++) {
+      const nx = x + N4[k][0], ny = y + N4[k][1];
+      if (nx < 0 || ny < 0 || nx >= COLS || ny >= ROWS) continue;
+      const j = ny * COLS + nx;
+      if (MARK[j] === stamp || !pass(S.grid[j])) continue;
+      MARK[j] = stamp; PREV[j] = i; QU[t++] = j;
     }
   }
+  return null;
+}
+function adjTest(i, test) {
+  const x = i % COLS, y = (i / COLS) | 0;
+  for (const [dx, dy] of N4) { const c = cell(x + dx, y + dy); if (c && test(c, x + dx, y + dy)) return true; }
+  return false;
+}
+function computeReach() {
+  reach = new Uint8Array(COLS * ROWS);
+  bfs(GI, walkable, i => { reach[i] = 1; return false; });
+}
+function perimeter(ex) {
+  const out = [];
+  for (let x = ex.x; x < ex.x + ex.w; x++) { out.push([x, ex.y - 1], [x, ex.y + ex.h]); }
+  for (let y = ex.y; y < ex.y + ex.h; y++) { out.push([ex.x - 1, y], [ex.x + ex.w, y]); }
+  return out;
 }
 function exAccess(ex) {
-  for (let x = ex.x - 1; x <= ex.x + 3; x++) for (let y = ex.y - 1; y <= ex.y + 3; y++) {
-    const inside = x >= ex.x && x < ex.x + 3 && y >= ex.y && y < ex.y + 3;
-    const corner = (x === ex.x - 1 || x === ex.x + 3) && (y === ex.y - 1 || y === ex.y + 3);
-    if (inside || corner) continue;
-    const c = cell(x, y);
-    if (walkable(c) && dist[y * COLS + x] >= 0) return true;
-  }
-  return false;
+  return perimeter(ex).some(([x, y]) => { const c = cell(x, y); return walkable(c) && reach[y * COLS + x]; });
 }
 function decorNear(ex) {
   let d = 0;
-  for (let x = ex.x - 1; x <= ex.x + 3; x++) for (let y = ex.y - 1; y <= ex.y + 3; y++) {
+  for (let x = ex.x - 1; x <= ex.x + ex.w; x++) for (let y = ex.y - 1; y <= ex.y + ex.h; y++) {
     const c = cell(x, y);
     if (c && c.k === 'am' && FAC[c.a].decor) d += FAC[c.a].decor;
   }
   return d;
 }
-function decorTotal() { return S.grid.reduce((n, c) => n + (c.k === 'am' && FAC[c.a].decor ? FAC[c.a].decor : 0), 0); }
+function sceneryScore() {
+  // scenery only counts where guests can see it: within 2 tiles of a reachable path
+  let d = 0;
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    const c = cell(x, y);
+    if (c.k !== 'am' || !FAC[c.a].decor) continue;
+    let seen = false;
+    for (let dy = -2; dy <= 2 && !seen; dy++) for (let dx = -2; dx <= 2; dx++) { const yy = y + dy, xx = x + dx; if (xx >= 0 && yy >= 0 && xx < COLS && yy < ROWS && reach[yy * COLS + xx]) { seen = true; break; } }
+    if (seen) d += FAC[c.a].decor;
+  }
+  return d;
+}
 function litterTotal() { return S.grid.reduce((n, c) => n + (c.litter || 0), 0); }
 function fairPrice() { return Math.round(6 + S.rating * 5); }
-function feedCost(ex) { const sp = SP[ex.sp]; return Math.round(ex.animals.reduce((n, a) => n + (a.baby ? 0.5 : 1), 0) * sp.food); }
-function keeperCovered(ex) {
-  if (!S.keepers) return false;
-  const idx = [...S.ex].sort((a, b) => a.id - b.id).findIndex(e => e.id === ex.id);
-  return idx < S.keepers * 4;
-}
+function feedCost(ex) { return Math.round(ex.animals.reduce((n, a) => n + (a.baby ? 0.5 : 1), 0) * SP[ex.sp].food); }
 function addNews(text) {
   S.news.unshift({ d: S.day, text });
   S.news.length = Math.min(S.news.length, 30);
   renderNews();
 }
 function earn(amount, kind) {
-  S.money += amount;
-  S.totals.earned += amount;
+  S.money += amount; S.totals.earned += amount;
   if (kind === 'ticket') S.today.tickets += amount; else S.today.sales += amount;
 }
-function spend(amount, daily) {
-  S.money -= amount;
-  if (daily) S.today.costs += amount;
-}
+function spend(amount, care) { S.money -= amount; if (care) S.today.care += amount; }
 
 /* =========================================================
-   CANVAS
+   CAMERA + CANVAS
 ========================================================= */
 const canvas = $('#map');
 const ctx = canvas.getContext('2d');
 const bg = document.createElement('canvas');
-let T = 32, DPR = 1, bgDirty = true;
+bg.width = COLS * BT; bg.height = ROWS * BT;
+const shade = document.createElement('canvas');
+let VW = 800, VH = 500, DPR = 1, bgDirty = true;
+const cam = { x: 0, y: 0, z: 32 };
+let camReady = false;
 const sprites = new Map();
 
+function minZoom() { return Math.min(VW / COLS, VH / ROWS) * 0.92; }
+function clampCam() {
+  cam.z = clamp(cam.z, minZoom(), 84);
+  const vw = VW / cam.z, vh = VH / cam.z;
+  cam.x = vw >= COLS ? (COLS - vw) / 2 : clamp(cam.x, -0.5, COLS + 0.5 - vw);
+  cam.y = vh >= ROWS ? (ROWS - vh) / 2 : clamp(cam.y, -0.5, ROWS + 0.5 - vh);
+}
+function zoomAt(sx, sy, factor) {
+  const wx = cam.x + sx / cam.z, wy = cam.y + sy / cam.z;
+  cam.z = clamp(cam.z * factor, minZoom(), 84);
+  cam.x = wx - sx / cam.z; cam.y = wy - sy / cam.z;
+  clampCam();
+}
+function focusOn(wx, wy, z) {
+  if (z) cam.z = z;
+  cam.x = wx - VW / cam.z / 2; cam.y = wy - VH / cam.z / 2;
+  clampCam();
+}
 function resize() {
   const wrap = $('#mapwrap');
-  const cs = getComputedStyle(wrap);
-  const w = wrap.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-  let t = w / COLS;
-  if (window.innerWidth > 980) {
-    const head = document.querySelector('header').offsetHeight;
-    const kit = document.querySelector('.kit').offsetHeight;
-    const maxH = window.innerHeight - head - kit - 70;
-    t = Math.min(t, maxH / ROWS);
-  }
-  T = Math.max(14, Math.floor(t));
+  VW = wrap.clientWidth; VH = wrap.clientHeight;
   DPR = Math.min(window.devicePixelRatio || 1, 2);
-  canvas.width = bg.width = Math.round(COLS * T * DPR);
-  canvas.height = bg.height = Math.round(ROWS * T * DPR);
-  canvas.style.width = COLS * T + 'px';
-  canvas.style.height = ROWS * T + 'px';
-  sprites.clear();
-  bgDirty = true;
+  canvas.width = shade.width = Math.round(VW * DPR);
+  canvas.height = shade.height = Math.round(VH * DPR);
+  if (!camReady) {
+    camReady = true;
+    const z = Math.max(minZoom(), Math.min(46, VW / (VW < 600 ? 12 : 24)));
+    focusOn(GATE.x + 0.5, GATE.y - 5, z);
+  }
+  clampCam();
 }
 
 function sprite(e, px) {
-  px = Math.max(6, Math.round(px));
-  const key = e + '|' + px + '|' + DPR;
+  px = px <= 24 ? Math.max(6, Math.round(px / 2) * 2) : Math.round(px / 4) * 4;
+  const key = e + '|' + px;
   let c = sprites.get(key);
   if (c) return c;
+  if (sprites.size > 600) sprites.clear();
   c = document.createElement('canvas');
-  const s = Math.ceil(px * 1.4 * DPR);
+  const s = Math.ceil(px * 1.4);
   c.width = c.height = s;
   const g = c.getContext('2d');
-  g.font = `${px * DPR}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","Twemoji Mozilla",sans-serif`;
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.fillText(e, s / 2, s / 2 + px * DPR * 0.06);
+  g.font = `${px}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","Twemoji Mozilla",sans-serif`;
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(e, s / 2, s / 2 + px * 0.06);
   sprites.set(key, c);
   return c;
 }
-function drawSprite(g, e, cx, cy, px, flip) {
-  const c = sprite(e, px);
-  const s = c.width / DPR;
-  g.save();
-  g.translate(cx, cy);
-  if (flip) g.scale(-1, 1);
-  g.drawImage(c, -s / 2, -s / 2, s, s);
-  g.restore();
+// draw an emoji centred at (cx, cy) in tile units; `scale` is device pixels per tile
+function drawSprite(g, e, cx, cy, size, scale, flip) {
+  const c = sprite(e, size * scale);
+  const s = size * 1.4;
+  if (flip) {
+    g.save(); g.translate(cx, cy); g.scale(-1, 1); g.drawImage(c, -s / 2, -s / 2, s, s); g.restore();
+  } else g.drawImage(c, cx - s / 2, cy - s / 2, s, s);
 }
 function rr(g, x, y, w, h, r) {
   g.beginPath();
@@ -544,184 +721,221 @@ function rr(g, x, y, w, h, r) {
   g.arcTo(x, y, x + w, y, r);
   g.closePath();
 }
+function dot(g, x, y, r, col) { g.fillStyle = col; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); }
 
+/* ---------- static layer (tile units, BT px per tile) ---------- */
 function drawBG() {
   bgDirty = false;
   const g = bg.getContext('2d');
-  g.setTransform(DPR, 0, 0, DPR, 0, 0);
-  g.clearRect(0, 0, COLS * T, ROWS * T);
-  // grass
+  g.setTransform(BT, 0, 0, BT, 0, 0);
+  g.clearRect(0, 0, COLS, ROWS);
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
     const h = hash(x, y);
     g.fillStyle = h < 0.33 ? '#86bd5e' : h < 0.66 ? '#81b859' : '#8bc263';
-    g.fillRect(x * T, y * T, T + 0.5, T + 0.5);
+    g.fillRect(x, y, 1.01, 1.01);
     if (hash(x, y, 3) < 0.45) {
-      g.strokeStyle = 'rgba(52,110,40,0.35)';
-      g.lineWidth = Math.max(1, T * 0.04);
-      const tx = (x + 0.2 + hash(x, y, 4) * 0.6) * T, ty = (y + 0.3 + hash(x, y, 5) * 0.5) * T;
+      g.strokeStyle = 'rgba(52,110,40,0.35)'; g.lineWidth = 0.035;
+      const tx = x + 0.2 + hash(x, y, 4) * 0.6, ty = y + 0.3 + hash(x, y, 5) * 0.5;
       g.beginPath();
-      g.moveTo(tx - T * 0.06, ty); g.lineTo(tx - T * 0.03, ty - T * 0.1);
-      g.moveTo(tx, ty); g.lineTo(tx, ty - T * 0.13);
-      g.moveTo(tx + T * 0.06, ty); g.lineTo(tx + T * 0.03, ty - T * 0.1);
+      g.moveTo(tx - 0.06, ty); g.lineTo(tx - 0.03, ty - 0.1);
+      g.moveTo(tx, ty); g.lineTo(tx, ty - 0.13);
+      g.moveTo(tx + 0.06, ty); g.lineTo(tx + 0.03, ty - 0.1);
       g.stroke();
     }
   }
-  // water
+  // shoreline then water
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
-    const c = cell(x, y);
-    if (c.k !== 'water') continue;
-    g.fillStyle = '#d9c88f';
-    g.fillRect(x * T - 1, y * T - 1, T + 2, T + 2);
+    if (cell(x, y).k !== 'water') continue;
+    g.fillStyle = '#d9c88f'; g.fillRect(x - 0.08, y - 0.08, 1.16, 1.16);
   }
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
-    const c = cell(x, y);
-    if (c.k !== 'water') continue;
-    const p = T * 0.12;
-    const l = cell(x - 1, y)?.k === 'water', r = cell(x + 1, y)?.k === 'water', u = cell(x, y - 1)?.k === 'water', d = cell(x, y + 1)?.k === 'water';
-    g.fillStyle = '#5bb3d6';
-    g.fillRect(x * T + (l ? 0 : p), y * T + (u ? 0 : p), T - (l ? 0 : p) - (r ? 0 : p), T - (u ? 0 : p) - (d ? 0 : p));
-    g.strokeStyle = 'rgba(255,255,255,0.55)';
-    g.lineWidth = Math.max(1, T * 0.04);
-    g.beginPath();
-    const wx = (x + 0.25 + hash(x, y, 7) * 0.3) * T, wy = (y + 0.35 + hash(x, y, 8) * 0.3) * T;
-    g.moveTo(wx, wy); g.quadraticCurveTo(wx + T * 0.1, wy - T * 0.06, wx + T * 0.2, wy);
-    g.stroke();
+    if (cell(x, y).k !== 'water') continue;
+    const w = (xx, yy) => cell(xx, yy)?.k === 'water';
+    const p = 0.1, l = w(x - 1, y), r2 = w(x + 1, y), u = w(x, y - 1), d = w(x, y + 1);
+    g.fillStyle = (l && r2 && u && d) ? '#4ea7cf' : '#5bb3d6';
+    g.fillRect(x + (l ? 0 : p), y + (u ? 0 : p), 1 - (l ? 0 : p) - (r2 ? 0 : p) + 0.01, 1 - (u ? 0 : p) - (d ? 0 : p) + 0.01);
+    if (hash(x, y, 7) < 0.4) {
+      g.strokeStyle = 'rgba(255,255,255,0.5)'; g.lineWidth = 0.035;
+      const wx = x + 0.25 + hash(x, y, 8) * 0.3, wy = y + 0.35 + hash(x, y, 6) * 0.3;
+      g.beginPath(); g.moveTo(wx, wy); g.quadraticCurveTo(wx + 0.1, wy - 0.06, wx + 0.2, wy); g.stroke();
+    }
+    if (!l || !u) { if (hash(x, y, 12) < 0.3) { g.strokeStyle = '#3f7d3a'; g.lineWidth = 0.04; g.beginPath(); g.moveTo(x + 0.2, y + 0.3); g.lineTo(x + 0.24, y + 0.05); g.moveTo(x + 0.3, y + 0.32); g.lineTo(x + 0.36, y + 0.1); g.stroke(); } }
   }
   // paths
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
     const c = cell(x, y);
     if (!walkable(c)) continue;
-    g.fillStyle = '#e6d09a';
-    g.fillRect(x * T, y * T, T + 0.5, T + 0.5);
+    g.fillStyle = '#e6d09a'; g.fillRect(x, y, 1.01, 1.01);
     g.fillStyle = 'rgba(160,125,70,0.25)';
-    for (let i = 0; i < 3; i++) {
-      g.beginPath();
-      g.arc((x + 0.15 + hash(x, y, 10 + i) * 0.7) * T, (y + 0.15 + hash(x, y, 20 + i) * 0.7) * T, Math.max(0.8, T * 0.03), 0, 7);
-      g.fill();
-    }
+    for (let i = 0; i < 3; i++) { g.beginPath(); g.arc(x + 0.15 + hash(x, y, 10 + i) * 0.7, y + 0.15 + hash(x, y, 20 + i) * 0.7, 0.03, 0, 7); g.fill(); }
     g.fillStyle = '#c8aa68';
-    const e = Math.max(1.5, T * 0.07);
-    if (!walkable(cell(x, y - 1))) g.fillRect(x * T, y * T, T, e);
-    if (!walkable(cell(x, y + 1)) && !(x === GATE.x && y === GATE.y)) g.fillRect(x * T, (y + 1) * T - e, T, e);
-    if (!walkable(cell(x - 1, y))) g.fillRect(x * T, y * T, e, T);
-    if (!walkable(cell(x + 1, y))) g.fillRect((x + 1) * T - e, y * T, e, T);
+    const e = 0.07;
+    if (!walkable(cell(x, y - 1))) g.fillRect(x, y, 1, e);
+    if (!walkable(cell(x, y + 1)) && !(x === GATE.x && y === GATE.y)) g.fillRect(x, y + 1 - e, 1, e);
+    if (!walkable(cell(x - 1, y))) g.fillRect(x, y, e, 1);
+    if (!walkable(cell(x + 1, y))) g.fillRect(x + 1 - e, y, e, 1);
   }
-  // gate
-  {
-    const X = GATE.x * T, Y = GATE.y * T;
-    g.fillStyle = '#1d3a29';
-    g.fillRect(X - T * 0.02, Y + T * 0.1, T * 0.14, T * 0.9);
-    g.fillRect(X + T * 0.88, Y + T * 0.1, T * 0.14, T * 0.9);
-    g.fillStyle = '#f4b63f';
-    rr(g, X - T * 0.12, Y + T * 0.04, T * 1.24, T * 0.34, T * 0.08);
-    g.fill();
-    g.fillStyle = '#1d3a29';
-    g.font = `${Math.max(7, T * 0.26)}px "Lilita One", sans-serif`;
-    g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillText('ZOO', X + T / 2, Y + T * 0.22);
-  }
-  // exhibits
+  // boundary hedge with a gap for the entrance
+  g.fillStyle = '#2f6a30';
+  g.fillRect(0, 0, COLS, 0.18); g.fillRect(0, 0, 0.18, ROWS); g.fillRect(COLS - 0.18, 0, 0.18, ROWS);
+  g.fillRect(0, ROWS - 0.18, GATE.x, 0.18); g.fillRect(GATE.x + 1, ROWS - 0.18, COLS - GATE.x - 1, 0.18);
+  // gate arch
+  g.fillStyle = '#1d3a29';
+  g.fillRect(GATE.x - 0.05, GATE.y + 0.12, 0.14, 0.88); g.fillRect(GATE.x + 0.91, GATE.y + 0.12, 0.14, 0.88);
+  g.fillStyle = '#f4b63f'; rr(g, GATE.x - 0.18, GATE.y + 0.04, 1.36, 0.34, 0.08); g.fill();
+  g.save(); g.setTransform(1, 0, 0, 1, 0, 0);
+  g.fillStyle = '#1d3a29'; g.font = `${BT * 0.24}px "Lilita One", sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText('WILDWOOD', (GATE.x + 0.5) * BT, (GATE.y + 0.22) * BT);
+  g.restore();
+  // exhibits and facilities
   for (const ex of S.ex) drawPen(g, ex);
-  // amenities
-  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
-    const c = cell(x, y);
-    if (c.k === 'am') drawFac(g, x, y, c);
-  }
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) { const c = cell(x, y); if (c.k === 'am') drawFac(g, x, y, c); }
 }
 
+function penSpots(ex) {
+  // local coordinates of the shelter, the pool and the feeder inside a pen
+  return {
+    shelter: { x: 0.85, y: 0.8 },
+    pool: { x: ex.w - 1.05, y: ex.h - 0.95 },
+    feeder: { x: ex.w - 0.9, y: 0.65 },
+  };
+}
 function drawPen(g, ex) {
   const sp = SP[ex.sp], hb = HAB[sp.hab];
-  const p = T * 0.08, X = ex.x * T + p, Y = ex.y * T + p, W = 3 * T - 2 * p, H = 3 * T - 2 * p;
+  const p = 0.08, X = ex.x + p, Y = ex.y + p, W = ex.w - 2 * p, H = ex.h - 2 * p;
   const r = seeded(ex.id * 7919 + 13);
+  const spots = penSpots(ex);
   g.save();
-  rr(g, X, Y, W, H, T * 0.28);
-  g.fillStyle = hb.a; g.fill();
-  g.clip();
-  const dot = (cx, cy, rad, col) => { g.fillStyle = col; g.beginPath(); g.arc(cx, cy, rad, 0, 7); g.fill(); };
+  rr(g, X, Y, W, H, 0.3); g.fillStyle = hb.a; g.fill(); g.clip();
+  const n = ex.w * ex.h;
   switch (hb.fx) {
-    case 'dots':
-      for (let i = 0; i < 22; i++) dot(X + r() * W, Y + r() * H, T * (0.03 + r() * 0.03), i % 3 ? hb.b : hb.fc);
+    case 'dots': for (let i = 0; i < n * 2.5; i++) dot(g, X + r() * W, Y + r() * H, 0.03 + r() * 0.03, i % 3 ? hb.b : hb.fc); break;
+    case 'reeds':
+      g.strokeStyle = '#3f7d3a'; g.lineWidth = 0.04;
+      for (let i = 0; i < n * 1.2; i++) { const bx = X + r() * W, by = Y + r() * H; g.beginPath(); g.moveTo(bx, by); g.lineTo(bx + 0.04, by - 0.22); g.stroke(); }
       break;
-    case 'water': {
-      g.fillStyle = hb.fc;
-      g.beginPath(); g.ellipse(X + W * 0.62, Y + H * 0.6, W * 0.32, H * 0.26, -0.3, 0, 7); g.fill();
-      g.strokeStyle = 'rgba(255,255,255,0.5)'; g.lineWidth = Math.max(1, T * 0.04);
-      g.beginPath(); g.arc(X + W * 0.6, Y + H * 0.58, T * 0.2, 3.6, 5.2); g.stroke();
-      g.strokeStyle = '#3f7d3a';
-      for (let i = 0; i < 6; i++) { const bx = X + W * (0.1 + r() * 0.3), by = Y + H * (0.15 + r() * 0.35); g.beginPath(); g.moveTo(bx, by); g.lineTo(bx + T * 0.04, by - T * 0.22); g.stroke(); }
+    case 'ice':
+      g.strokeStyle = hb.fc; g.lineWidth = 0.035;
+      for (let i = 0; i < n * 0.6; i++) { const sx = X + r() * W, sy = Y + r() * H; g.beginPath(); g.moveTo(sx, sy); g.lineTo(sx + 0.2 + r() * 0.3, sy + r() * 0.3 - 0.1); g.lineTo(sx + 0.3 + r() * 0.3, sy + 0.25); g.stroke(); }
       break;
-    }
-    case 'ice': {
-      g.fillStyle = '#7fb6d3';
-      g.beginPath(); g.ellipse(X + W * 0.3, Y + H * 0.7, W * 0.26, H * 0.2, 0.2, 0, 7); g.fill();
-      g.strokeStyle = hb.fc; g.lineWidth = Math.max(1, T * 0.035);
-      for (let i = 0; i < 5; i++) { const sx = X + r() * W, sy = Y + r() * H * 0.6; g.beginPath(); g.moveTo(sx, sy); g.lineTo(sx + T * (0.2 + r() * 0.3), sy + T * (r() * 0.3 - 0.1)); g.lineTo(sx + T * (0.3 + r() * 0.3), sy + T * 0.25); g.stroke(); }
-      break;
-    }
     case 'rocks':
-      for (let i = 0; i < 16; i++) dot(X + r() * W, Y + r() * H, T * (0.03 + r() * 0.03), hb.fc);
-      dot(X + W * 0.75, Y + H * 0.25, T * 0.28, '#a7724a'); dot(X + W * 0.72, Y + H * 0.22, T * 0.18, '#bd8758');
+      for (let i = 0; i < n * 1.8; i++) dot(g, X + r() * W, Y + r() * H, 0.03 + r() * 0.03, hb.fc);
+      for (let i = 0; i < Math.max(1, n / 12); i++) { const bx = X + W * (0.3 + r() * 0.4), by = Y + H * (0.3 + r() * 0.4); dot(g, bx, by, 0.26, '#a7724a'); dot(g, bx - 0.04, by - 0.05, 0.16, '#bd8758'); }
       break;
     case 'leaves':
-      for (let i = 0; i < 9; i++) { const bx = X + r() * W, by = Y + r() * H; dot(bx, by, T * (0.16 + r() * 0.14), hb.b); dot(bx - T * 0.05, by - T * 0.05, T * 0.08, hb.fc); }
+      for (let i = 0; i < n * 0.9; i++) { const bx = X + r() * W, by = Y + r() * H; dot(g, bx, by, 0.16 + r() * 0.14, hb.b); dot(g, bx - 0.05, by - 0.05, 0.08, hb.fc); }
       break;
     case 'grass':
-      g.strokeStyle = hb.fc; g.lineWidth = Math.max(1, T * 0.04);
-      for (let i = 0; i < 26; i++) { const bx = X + r() * W, by = Y + r() * H; g.beginPath(); g.moveTo(bx, by); g.lineTo(bx - T * 0.05, by - T * 0.12); g.moveTo(bx, by); g.lineTo(bx + T * 0.05, by - T * 0.12); g.stroke(); }
-      dot(X + W * 0.2, Y + H * 0.22, T * 0.3, '#6d9a44'); dot(X + W * 0.2, Y + H * 0.22, T * 0.18, '#82b052');
+      g.strokeStyle = hb.fc; g.lineWidth = 0.04;
+      for (let i = 0; i < n * 2.6; i++) { const bx = X + r() * W, by = Y + r() * H; g.beginPath(); g.moveTo(bx, by); g.lineTo(bx - 0.05, by - 0.12); g.moveTo(bx, by); g.lineTo(bx + 0.05, by - 0.12); g.stroke(); }
+      for (let i = 0; i < Math.max(1, Math.floor(n / 14)); i++) { const bx = X + W * (0.25 + r() * 0.5), by = Y + H * (0.3 + r() * 0.4); dot(g, bx, by, 0.36, '#6d9a44'); dot(g, bx - 0.05, by - 0.06, 0.22, '#82b052'); }
       break;
     case 'bamboo':
-      g.lineWidth = Math.max(2, T * 0.09);
-      for (let i = 0; i < 12; i++) {
-        const bx = X + (i < 6 ? r() * W * 0.25 : W * 0.75 + r() * W * 0.25), by = Y + H * (0.1 + r() * 0.3);
-        g.strokeStyle = hb.fc; g.beginPath(); g.moveTo(bx, by); g.lineTo(bx, by + T * 0.9); g.stroke();
-        g.strokeStyle = '#2f6b28'; g.beginPath(); g.moveTo(bx - T * 0.05, by + T * 0.4); g.lineTo(bx + T * 0.05, by + T * 0.4); g.stroke();
+      g.lineWidth = 0.08;
+      for (let i = 0; i < n * 0.9; i++) {
+        const edge = r() < 0.5;
+        const bx = edge ? X + r() * W * 0.22 + (r() < 0.5 ? 0 : W * 0.78) : X + r() * W, by = edge ? Y + r() * H * 0.7 : Y + r() * H * 0.15;
+        g.strokeStyle = hb.fc; g.beginPath(); g.moveTo(bx, by); g.lineTo(bx, by + 0.9); g.stroke();
+        g.strokeStyle = '#2f6b28'; g.beginPath(); g.moveTo(bx - 0.05, by + 0.4); g.lineTo(bx + 0.05, by + 0.4); g.stroke();
       }
       break;
   }
+  // pool
+  const big = hb.pool === 'big';
+  const px = ex.x + spots.pool.x, py = ex.y + spots.pool.y;
+  g.fillStyle = sp.hab === 'arctic' ? '#7fb6d3' : '#58aed3';
+  g.beginPath(); g.ellipse(px, py, big ? Math.min(1.4, ex.w * 0.3) : 0.48, big ? Math.min(0.9, ex.h * 0.22) : 0.3, -0.2, 0, 7); g.fill();
+  g.strokeStyle = 'rgba(255,255,255,0.55)'; g.lineWidth = 0.035;
+  g.beginPath(); g.arc(px - 0.1, py - 0.05, 0.16, 3.6, 5.2); g.stroke();
   g.restore();
+  // feeder trough
+  const fx = ex.x + spots.feeder.x, fy = ex.y + spots.feeder.y;
+  g.fillStyle = '#7a4b27'; rr(g, fx - 0.3, fy - 0.12, 0.6, 0.24, 0.06); g.fill();
+  g.fillStyle = sp.hab === 'bamboo' ? '#5aa548' : sp.id === 'lion' || sp.id === 'tiger' || sp.id === 'polar' || sp.id === 'croc' || sp.id === 'penguin' ? '#c9614f' : '#d9c25a';
+  rr(g, fx - 0.24, fy - 0.08, 0.48, 0.12, 0.04); g.fill();
+  // shelter
+  const sx = ex.x + spots.shelter.x, sy = ex.y + spots.shelter.y;
+  if (sp.hab === 'arctic') {
+    g.fillStyle = '#ffffff'; g.beginPath(); g.ellipse(sx, sy + 0.1, 0.5, 0.38, 0, Math.PI, 0); g.fill();
+    g.strokeStyle = '#b6d4e3'; g.lineWidth = 0.03; g.stroke();
+    g.fillStyle = '#5c7f92'; g.beginPath(); g.ellipse(sx, sy + 0.1, 0.16, 0.18, 0, Math.PI, 0); g.fill();
+  } else if (sp.hab === 'wetland' || sp.hab === 'outback') {
+    g.fillStyle = '#8a8f8a'; g.beginPath(); g.ellipse(sx, sy, 0.45, 0.32, 0, 0, 7); g.fill();
+    g.fillStyle = '#a6aba6'; g.beginPath(); g.ellipse(sx - 0.08, sy - 0.08, 0.3, 0.2, 0, 0, 7); g.fill();
+  } else {
+    g.fillStyle = 'rgba(0,0,0,0.18)'; g.fillRect(sx - 0.38, sy - 0.12, 0.8, 0.52);
+    g.fillStyle = '#9b6a3c'; g.fillRect(sx - 0.42, sy - 0.18, 0.84, 0.52);
+    g.fillStyle = sp.hab === 'jungle' || sp.hab === 'bamboo' ? '#c6a25a' : '#7d4a2a';
+    g.beginPath(); g.moveTo(sx - 0.52, sy - 0.14); g.lineTo(sx, sy - 0.5); g.lineTo(sx + 0.52, sy - 0.14); g.closePath(); g.fill();
+    g.fillStyle = '#3e2615'; g.fillRect(sx - 0.12, sy + 0.04, 0.24, 0.3);
+  }
   // fence
-  g.strokeStyle = '#8a5a32';
-  g.lineWidth = Math.max(1.5, T * 0.08);
-  rr(g, X, Y, W, H, T * 0.28); g.stroke();
+  g.strokeStyle = '#8a5a32'; g.lineWidth = 0.08;
+  rr(g, X, Y, W, H, 0.3); g.stroke();
   g.fillStyle = '#5e3a1e';
-  const step = T * 0.5;
-  for (let i = 0; i <= 6; i++) {
-    const t = i * step + p * 0.0;
-    [[X + Math.min(t, W - T * 0.15) , Y], [X + Math.min(t, W - T * 0.15), Y + H], [X, Y + Math.min(t, H - T * 0.15)], [X + W, Y + Math.min(t, H - T * 0.15)]].forEach(([px, py]) => {
-      if ((px - X < T * 0.2 && py - Y < T * 0.2) || (X + W - px < T * 0.2 && py - Y < T * 0.2) || (px - X < T * 0.2 && Y + H - py < T * 0.2) || (X + W - px < T * 0.2 && Y + H - py < T * 0.2)) return;
-      g.beginPath(); g.arc(px, py, Math.max(1.2, T * 0.06), 0, 7); g.fill();
-    });
+  for (let t = 0.5; t < W - 0.2; t += 0.5) { dot(g, X + t, Y, 0.055, '#5e3a1e'); dot(g, X + t, Y + H, 0.055, '#5e3a1e'); }
+  for (let t = 0.5; t < H - 0.2; t += 0.5) { dot(g, X, Y + t, 0.055, '#5e3a1e'); dot(g, X + W, Y + t, 0.055, '#5e3a1e'); }
+  // sign board on the side nearest a path
+  const side = perimeter(ex).find(([x, y]) => walkable(cell(x, y)));
+  if (side) {
+    const [qx, qy] = side;
+    const bx = clamp(qx + 0.5, ex.x + 0.5, ex.x + ex.w - 0.5), by = clamp(qy + 0.5, ex.y + 0.3, ex.y + ex.h - 0.3);
+    g.fillStyle = '#1d3a29'; rr(g, bx - 0.3, by - 0.18, 0.6, 0.36, 0.06); g.fill();
+    g.strokeStyle = '#f4b63f'; g.lineWidth = 0.03; g.stroke();
+    drawSprite(g, sp.e, bx, by, 0.26, BT);
   }
 }
 
 function drawFac(g, x, y, c) {
   const f = FAC[c.a];
-  const cx = (x + 0.5) * T, cy = (y + 0.5) * T;
+  const cx = x + 0.5, cy = y + 0.5;
   if (c.a === 'tree') {
-    g.fillStyle = 'rgba(20,50,20,0.25)';
-    g.beginPath(); g.ellipse(cx + T * 0.06, cy + T * 0.22, T * 0.36, T * 0.18, 0, 0, 7); g.fill();
-    g.fillStyle = '#2f6e33'; g.beginPath(); g.arc(cx, cy, T * 0.4, 0, 7); g.fill();
-    g.fillStyle = '#3f8a3e'; g.beginPath(); g.arc(cx - T * 0.08, cy - T * 0.08, T * 0.28, 0, 7); g.fill();
-    g.fillStyle = '#63ac52'; g.beginPath(); g.arc(cx - T * 0.14, cy - T * 0.15, T * 0.12, 0, 7); g.fill();
-    return;
-  }
-  if (c.a === 'flowers') {
-    g.fillStyle = '#6a8f3f'; rr(g, x * T + T * 0.14, y * T + T * 0.18, T * 0.72, T * 0.64, T * 0.2); g.fill();
-    const cols = ['#ff6f91', '#ffd23f', '#ffffff', '#c084fc', '#ff8f3a'];
-    for (let i = 0; i < 7; i++) {
-      g.fillStyle = cols[Math.floor(hash(x, y, 40 + i) * cols.length)];
-      g.beginPath(); g.arc((x + 0.24 + hash(x, y, 50 + i) * 0.52) * T, (y + 0.28 + hash(x, y, 60 + i) * 0.44) * T, Math.max(1.3, T * 0.07), 0, 7); g.fill();
+    const v = hash(x, y, 30);
+    g.fillStyle = 'rgba(20,50,20,0.25)'; g.beginPath(); g.ellipse(cx + 0.08, cy + 0.22, 0.4, 0.2, 0, 0, 7); g.fill();
+    if (v < 0.3 && c.wild) {
+      // conifer
+      g.fillStyle = '#25562b'; g.beginPath(); g.moveTo(cx, cy - 0.48); g.lineTo(cx + 0.36, cy + 0.26); g.lineTo(cx - 0.36, cy + 0.26); g.closePath(); g.fill();
+      g.fillStyle = '#2f6e33'; g.beginPath(); g.moveTo(cx, cy - 0.48); g.lineTo(cx + 0.14, cy + 0.2); g.lineTo(cx - 0.3, cy + 0.2); g.closePath(); g.fill();
+    } else {
+      const s = 0.85 + v * 0.3;
+      g.fillStyle = '#2f6e33'; g.beginPath(); g.arc(cx, cy, 0.4 * s, 0, 7); g.fill();
+      g.fillStyle = '#3f8a3e'; g.beginPath(); g.arc(cx - 0.08, cy - 0.08, 0.28 * s, 0, 7); g.fill();
+      g.fillStyle = '#63ac52'; g.beginPath(); g.arc(cx - 0.14, cy - 0.15, 0.12 * s, 0, 7); g.fill();
     }
     return;
   }
-  g.fillStyle = 'rgba(0,0,0,0.18)';
-  g.beginPath(); g.ellipse(cx, cy + T * 0.3, T * 0.34, T * 0.12, 0, 0, 7); g.fill();
-  g.fillStyle = '#fffaf0';
-  g.beginPath(); g.arc(cx, cy, T * 0.4, 0, 7); g.fill();
-  g.strokeStyle = f.ring; g.lineWidth = Math.max(1.5, T * 0.07);
-  g.stroke();
-  drawSprite(g, f.e, cx, cy, T * 0.5);
+  if (c.a === 'flowers') {
+    g.fillStyle = '#6a8f3f'; rr(g, x + 0.14, y + 0.18, 0.72, 0.64, 0.2); g.fill();
+    const cols = ['#ff6f91', '#ffd23f', '#ffffff', '#c084fc', '#ff8f3a'];
+    for (let i = 0; i < 8; i++) {
+      g.fillStyle = cols[Math.floor(hash(x, y, 40 + i) * cols.length)];
+      g.beginPath(); g.arc(x + 0.24 + hash(x, y, 50 + i) * 0.52, y + 0.28 + hash(x, y, 60 + i) * 0.44, 0.07, 0, 7); g.fill();
+    }
+    return;
+  }
+  if (c.a === 'rock') {
+    g.fillStyle = 'rgba(0,0,0,0.18)'; g.beginPath(); g.ellipse(cx + 0.05, cy + 0.18, 0.34, 0.14, 0, 0, 7); g.fill();
+    g.fillStyle = '#8b8f88'; g.beginPath(); g.ellipse(cx, cy + 0.04, 0.32, 0.24, 0.2, 0, 7); g.fill();
+    g.fillStyle = '#a9ada5'; g.beginPath(); g.ellipse(cx - 0.07, cy - 0.04, 0.18, 0.12, 0.2, 0, 7); g.fill();
+    return;
+  }
+  if (c.a === 'lamp') {
+    g.fillStyle = 'rgba(0,0,0,0.2)'; g.beginPath(); g.ellipse(cx + 0.05, cy + 0.3, 0.16, 0.06, 0, 0, 7); g.fill();
+    g.fillStyle = '#2b2f2c'; g.fillRect(cx - 0.035, cy - 0.3, 0.07, 0.6);
+    g.beginPath(); g.arc(cx, cy - 0.34, 0.12, 0, 7); g.fill();
+    g.fillStyle = '#fff2b8'; g.beginPath(); g.arc(cx, cy - 0.34, 0.07, 0, 7); g.fill();
+    return;
+  }
+  g.fillStyle = 'rgba(0,0,0,0.18)'; g.beginPath(); g.ellipse(cx, cy + 0.3, 0.34, 0.12, 0, 0, 7); g.fill();
+  g.fillStyle = '#fffaf0'; g.beginPath(); g.arc(cx, cy, 0.4, 0, 7); g.fill();
+  g.strokeStyle = f.ring; g.lineWidth = 0.07; g.stroke();
+  if (c.a === 'snack' || c.a === 'drink' || c.a === 'gift') {
+    // striped awning
+    g.save(); g.beginPath(); g.arc(cx, cy, 0.4, Math.PI * 1.08, Math.PI * 1.92); g.closePath(); g.clip();
+    for (let i = -4; i <= 4; i++) { g.fillStyle = i % 2 ? f.ring : '#ffffff'; g.fillRect(cx + i * 0.1, cy - 0.5, 0.1, 0.3); }
+    g.restore();
+  }
+  drawSprite(g, f.e, cx, cy + 0.04, 0.46, BT);
 }
 
 /* =========================================================
@@ -730,69 +944,103 @@ function drawFac(g, x, y, c) {
 function animsFor(ex) {
   let a = animPos.get(ex.id);
   if (!a) { a = []; animPos.set(ex.id, a); }
-  while (a.length < ex.animals.length) { const x = rnd(0.55, 2.45), y = rnd(0.7, 2.4); a.push({ x, y, tx: x, ty: y, wait: rnd(0, 3), flip: Math.random() < 0.5, moving: false }); }
+  while (a.length < ex.animals.length) {
+    const x = rnd(0.6, ex.w - 0.6), y = rnd(0.7, ex.h - 0.5);
+    a.push({ x, y, tx: x, ty: y, wait: rnd(0, 3), flip: Math.random() < 0.5, mode: 'wander', moving: false, sleep: false });
+  }
   a.length = ex.animals.length;
   return a;
 }
 function updateAnimals(dt) {
+  const night = !isOpen() && S.t > OPEN + 2 && S.t < CYCLE - 3;
   for (const ex of S.ex) {
-    const list = animsFor(ex);
-    for (const p of list) {
-      if (p.wait > 0) { p.wait -= dt; p.moving = false; continue; }
+    const sp = SP[ex.sp], list = animsFor(ex), spots = penSpots(ex);
+    list.forEach((p, i) => {
+      if (night) {
+        const ang = i * 2.1;
+        const tx = spots.shelter.x + 0.4 + Math.cos(ang) * 0.35 * (1 + i * 0.15), ty = spots.shelter.y + 0.55 + Math.sin(ang) * 0.25;
+        p.tx = clamp(tx, 0.5, ex.w - 0.5); p.ty = clamp(ty, 0.6, ex.h - 0.45);
+        p.mode = 'sleep';
+      } else if (p.mode === 'sleep') { p.mode = 'wander'; p.wait = rnd(0, 2); }
       const dx = p.tx - p.x, dy = p.ty - p.y, d = Math.hypot(dx, dy);
-      const step = 0.4 * dt;
-      if (d <= step) { p.x = p.tx; p.y = p.ty; p.wait = rnd(1, 4.5); p.tx = rnd(0.55, 2.45); p.ty = rnd(0.7, 2.4); p.moving = false; }
-      else { p.x += dx / d * step; p.y += dy / d * step; p.flip = dx > 0; p.moving = true; }
-    }
+      if (p.wait > 0 && !night) { p.wait -= dt; p.moving = false; return; }
+      const step = sp.spd * (ex.animals[i]?.baby ? 1.2 : 1) * dt;
+      if (d <= step) {
+        p.x = p.tx; p.y = p.ty; p.moving = false;
+        if (night) { p.sleep = true; return; }
+        p.sleep = false;
+        const roll = Math.random();
+        if (roll < 0.18) { p.mode = 'drink'; p.tx = spots.pool.x + rnd(-0.4, 0.2); p.ty = spots.pool.y - rnd(0.25, 0.45); p.wait = 0; }
+        else if (roll < 0.36 && ex.food > 8) { p.mode = 'eat'; p.tx = spots.feeder.x + rnd(-0.3, 0.3); p.ty = spots.feeder.y + 0.35; p.wait = 0; }
+        else { p.mode = 'wander'; p.tx = rnd(0.6, ex.w - 0.6); p.ty = rnd(0.7, ex.h - 0.5); }
+        p.tx = clamp(p.tx, 0.5, ex.w - 0.5); p.ty = clamp(p.ty, 0.6, ex.h - 0.45);
+        if (p.mode === 'wander') p.wait = rnd(1, 4.5);
+        else { p.wait = 0; p.pending = rnd(2, 4); }
+      } else {
+        p.x += dx / d * step; p.y += dy / d * step; p.flip = dx > 0.01; p.moving = true;
+        p.sleep = false;
+      }
+      if (!p.moving && (p.mode === 'drink' || p.mode === 'eat') && p.pending) { p.wait = p.pending; p.pending = 0; }
+    });
   }
 }
 
 /* =========================================================
-   VISITORS
+   GUESTS
 ========================================================= */
-function spawnVisitor(opts = {}) {
-  if (visitors.length >= 120) return null;
-  const v = {
-    id: nextVid++, name: pick(NAMES),
-    x: GATE.x, y: GATE.y, tx: GATE.x, ty: GATE.y - 1, px: GATE.x, py: GATE.y,
-    ox: rnd(-0.22, 0.22), oy: rnd(-0.18, 0.18),
-    shirt: pick(SHIRTS), skin: pick(SKINS), balloon: null,
-    hap: opts.hap ?? 65, hunger: rnd(0, 35), thirst: rnd(0, 35), bladder: rnd(0, 30),
-    stay: rnd(32, 58), seen: new Set(), visits: {}, leaving: false, wait: 0,
-    spent: opts.paid || 0, trash: false, gift: false, thought: 'Can’t wait to see the animals!', lastSaw: null, moving: true,
-  };
-  v.left = v.stay;
-  if (opts.place) {
-    v.x = v.px = opts.place.x; v.y = v.py = opts.place.y;
-    v.tx = v.x; v.ty = v.y;
-    v.left = rnd(10, 35);
+function makeParty() {
+  const r = Math.random();
+  let adults, kids, name;
+  const sur = pick(SURN);
+  if (r < 0.25) { adults = 1; kids = 0; name = pick(FIRST); }
+  else if (r < 0.5) { adults = 2; kids = 0; const a = pick(FIRST); let b = pick(FIRST); if (b === a) b = 'Sam'; name = `${a} and ${b}`; }
+  else if (r < 0.9) { adults = Math.random() < 0.3 ? 1 : 2; kids = 1 + Math.floor(Math.random() * 3); name = `The ${sur} family`; }
+  else { adults = 3; kids = 0; name = `${pick(FIRST)} and friends`; }
+  const members = [];
+  const OFF = [[0, 0], [0.2, 0.12], [-0.2, 0.12], [0.08, -0.2], [-0.14, -0.18]];
+  for (let i = 0; i < adults + kids; i++) {
+    const kid = i >= adults;
+    members.push({ kid, shirt: pick(SHIRTS), skin: pick(SKINS), hair: pick(HAIR), balloon: null, ox: OFF[i][0] + rnd(-0.03, 0.03), oy: OFF[i][1] + rnd(-0.03, 0.03), ph: Math.random() * 6, umb: !kid && Math.random() < 0.8 ? pick(UMBRELLAS) : null });
   }
-  visitors.push(v);
-  return v;
+  return { adults, kids, name, members };
 }
-function spawnGroup() {
-  if (!walkable(cell(GATE.x, GATE.y - 1))) return;
-  const size = Math.random() < 0.45 ? 1 : Math.random() < 0.6 ? 2 : 3 + Math.floor(Math.random() * 2);
+function spawnParty(opts = {}) {
+  if (parties.length >= 90) return null;
+  const m = opts.makeup || makeParty();
+  const stay = rnd(50, 85);
+  const p = {
+    id: nextPid++, name: m.name, adults: m.adults, kids: m.kids, members: m.members,
+    x: GATE.x, y: GATE.y, i: GI, route: [], ri: 0, goal: null,
+    hap: opts.hap ?? 65, hunger: rnd(0, 35), thirst: rnd(0, 35), bladder: rnd(0, 30), energy: rnd(75, 100),
+    stay, left: stay, seen: new Set(), leaving: false, wait: 0, spent: opts.paid || 0, trash: false, gift: false,
+    missing: {}, thought: 'Can’t wait to see the animals!', moving: false, school: !!opts.school,
+  };
+  parties.push(p);
+  return p;
+}
+function partyPrice(adults, kids) { return adults * S.price + kids * Math.round(S.price / 2); }
+function spawnArrival() {
+  if (!reach[GI - COLS]) return;
   const fair = fairPrice();
   const startHap = 65 + clamp((fair - S.price) * 1.5, -25, 10);
-  let paid = 0;
-  for (let i = 0; i < size; i++) {
-    const v = spawnVisitor({ hap: startHap, paid: S.price });
-    if (!v) break;
-    if (S.price > fair * 1.4) v.thought = 'Pricey tickets. This had better be good.';
-    earn(S.price, 'ticket');
-    paid += S.price;
-    S.totals.visitors++; S.today.visitors++;
-    v.y += i * 0.15;
-  }
-  if (paid > 0) floatText(GATE.x + 0.5, GATE.y - 0.2, '+' + fmt(paid), '#ffe08a');
+  const m = makeParty();
+  const fee = partyPrice(m.adults, m.kids);
+  const p = spawnParty({ makeup: m, hap: startHap, paid: fee });
+  if (!p) return;
+  if (S.price > fair * 1.4) p.thought = 'Those tickets were pricey. This had better be good.';
+  if (S.weather.kind === 'rain') p.thought = 'Bit wet, but the animals don’t mind the rain.';
+  earn(fee, 'ticket');
+  S.totals.visitors += m.adults + m.kids; S.today.visitors += m.adults + m.kids;
+  floatText(GATE.x + 0.5, GATE.y - 0.1, '+' + fmt(fee), '#ffe08a');
 }
+function guestCount() { return parties.reduce((n, p) => n + p.members.length, 0); }
 
 function attraction() {
   let a = 0;
   for (const ex of S.ex) {
-    if (!exAccess(ex) || !ex.animals.length) continue;
-    a += SP[ex.sp].appeal * Math.sqrt(ex.animals.length) * (0.6 + ex.hap / 250);
+    if (!ex.animals.length || !exAccess(ex)) continue;
+    const babies = ex.animals.some(x => x.baby);
+    a += SP[ex.sp].appeal * Math.sqrt(ex.animals.length) * (0.5 + ex.hap / 200) * (ex.health < 45 ? 0.6 : 1) * (babies ? 1.2 : 1);
   }
   return a;
 }
@@ -801,391 +1049,537 @@ function visitorsPerDay() {
   if (a <= 0) return 0;
   const fair = fairPrice();
   const pf = clamp(1 + (fair - S.price) / (fair * 1.5), 0.15, 1.4);
-  return (8 + 22 * Math.pow(a, 0.6) + S.rating * 6) * pf;
+  return (10 + 26 * Math.pow(a, 0.62) + S.rating * 8) * pf * WEATHER[S.weather.kind].vis;
 }
 
 function moodWord(h) { return h >= 80 ? 'Delighted' : h >= 60 ? 'Happy' : h >= 40 ? 'Okay' : h >= 20 ? 'Grumpy' : 'Miserable'; }
 function moodFace(h) { return h >= 80 ? '😄' : h >= 60 ? '🙂' : h >= 40 ? '😐' : h >= 20 ? '😠' : '😫'; }
+const GOAL_LABEL = { snack: 'a snack stand', drink: 'a drinks stand', toilet: 'the restrooms', bench: 'a bench', gift: 'the gift shop', gate: 'the exit', wander: 'a stroll' };
 
-function updateVisitor(v, dt) {
-  v.left -= dt;
-  v.hunger = clamp(v.hunger + 1.5 * dt);
-  v.thirst = clamp(v.thirst + 1.7 * dt);
-  v.bladder = clamp(v.bladder + 1.15 * dt);
-  if (v.hunger > 85 || v.thirst > 85 || v.bladder > 90) {
-    v.hap = clamp(v.hap - 1.3 * dt);
-    if (Math.random() < dt * 0.3) v.thought = v.bladder > 90 ? 'Where are the restrooms?!' : v.hunger > 85 ? 'I’m starving. Is there any food here?' : 'I could really use a drink.';
+function updateParty(p, dt) {
+  const w = WEATHER[S.weather.kind];
+  p.left -= dt;
+  p.hunger = clamp(p.hunger + 0.95 * dt);
+  p.thirst = clamp(p.thirst + 1.05 * w.thirst * dt);
+  p.bladder = clamp(p.bladder + 0.75 * dt);
+  p.energy = clamp(p.energy - (p.kids ? 0.75 : 0.6) * dt);
+  if (w.mood) p.hap = clamp(p.hap + w.mood * dt);
+  if (p.hunger > 85 || p.thirst > 85 || p.bladder > 90) {
+    p.hap = clamp(p.hap - 1.1 * dt);
+    if (Math.random() < dt * 0.25) p.thought = p.bladder > 90 ? 'Where are the restrooms?!' : p.hunger > 85 ? (p.kids ? 'The kids are starving. Is there food anywhere?' : 'I’m starving. Is there any food here?') : 'I could really use a drink.';
   }
-  if (v.wait > 0) { v.wait -= dt; v.moving = false; return; }
-  const dx = v.tx - v.x, dy = v.ty - v.y, d = Math.hypot(dx, dy);
-  const step = 1.6 * dt;
-  if (d <= step) { v.x = v.tx; v.y = v.ty; arrive(v); }
-  else { v.x += dx / d * step; v.y += dy / d * step; v.moving = true; }
+  if (p.energy < 10) p.hap = clamp(p.hap - 0.5 * dt);
+  if (p.wait > 0) { p.wait -= dt; p.moving = false; return; }
+  if (p.ri >= p.route.length) { arriveGoal(p); return; }
+  const next = p.route[p.ri];
+  const tx = next % COLS, ty = (next / COLS) | 0;
+  const dx = tx - p.x, dy = ty - p.y, d = Math.hypot(dx, dy);
+  const speed = (p.energy < 20 ? 1.05 : 1.45) * (p.kids ? 0.9 : 1) * (!isOpen() ? 1.8 : 1);
+  const step = speed * dt;
+  p.moving = true;
+  if (d <= step) {
+    p.x = tx; p.y = ty; p.i = next; p.ri++;
+    const c = S.grid[next];
+    if (!walkable(c)) { p.route = []; p.ri = 0; p.goal = null; decide(p); return; }
+    stepOn(p, c);
+  } else { p.x += dx / d * step; p.y += dy / d * step; }
 }
 
-function removeVisitor(v, satisfied) {
-  const i = visitors.indexOf(v);
-  if (i >= 0) visitors.splice(i, 1);
-  if (satisfied) {
-    S.sat.push(Math.round(v.hap));
-    if (S.sat.length > 40) S.sat.shift();
-    if (v.hap > 90 && Math.random() < 0.1) {
-      const tip = 20 + Math.floor(Math.random() * 4) * 10;
-      earn(tip, 'sale');
-      floatText(GATE.x + 0.5, GATE.y - 0.4, '+' + fmt(tip) + ' tip', '#ffe08a');
+function viewExhibit(p, ex) {
+  const sp = SP[ex.sp];
+  const babies = ex.animals.some(a => a.baby);
+  const sleeping = !isOpen();
+  let gain = 2 + sp.appeal * 3 * (ex.hap / 100) * (babies ? 1.25 : 1) * (0.7 + 0.12 * Math.min(ex.animals.length, 5));
+  if (p.kids) gain *= 1.15;
+  if (ex.hap < 35 || ex.health < 40) gain = -6;
+  if (sleeping) gain *= 0.3;
+  p.hap = clamp(p.hap + gain);
+  p.seen.add(ex.id);
+  p.wait = rnd(1.4, 2.6);
+  if (ex.health < 40) { p.thought = `That ${sp.one} looks poorly. Someone should call a vet.`; floatText(p.x + 0.5, p.y, '☹', '#ffb3a8'); }
+  else if (ex.hap < 35) { p.thought = `The ${sp.name.toLowerCase()} look so unhappy.`; floatText(p.x + 0.5, p.y, '☹', '#ffb3a8'); }
+  else if (ex.dirt > 70) { p.thought = `The ${sp.name.toLowerCase()} enclosure smells awful.`; p.hap = clamp(p.hap - 3); }
+  else if (babies && Math.random() < 0.6) { p.thought = `Look, a baby ${sp.one}! So cute!`; floatText(p.x + 0.5, p.y, '♥', '#ff6f91'); }
+  else {
+    p.thought = pick(p.kids
+      ? [`The kids can’t stop talking about the ${sp.name.toLowerCase()}!`, `“Mum, look at the ${sp.one}!”`, `We could watch the ${sp.name.toLowerCase()} all day.`]
+      : [`Wow, the ${sp.name.toLowerCase()} are amazing!`, `I love the ${sp.name.toLowerCase()}!`, sp.fact.replace(/\.$/, '') + '. Who knew?']);
+    if (gain > 6) floatText(p.x + 0.5, p.y, '♥', '#ff6f91');
+  }
+}
+
+function viewAdjacent(p) {
+  // look at any exhibit right beside this tile
+  for (const [dx, dy] of N4) {
+    const n = cell(p.x + dx, p.y + dy);
+    if (n && n.k === 'ex' && !p.seen.has(n.id)) {
+      const ex = getEx(n.id);
+      if (ex && ex.animals.length) { viewExhibit(p, ex); return true; }
     }
   }
-  if (sel && sel.type === 'vis' && sel.v === v) { sel = { type: 'gone', name: v.name, hap: v.hap }; renderInspector(); }
-}
-
-function arrive(v) {
-  const c = cell(v.x, v.y);
-  if (!walkable(c)) { removeVisitor(v, false); return; }
-  if (v.leaving) {
-    if (v.x === GATE.x && v.y === GATE.y) { removeVisitor(v, true); return; }
-    const here = dist[v.y * COLS + v.x];
-    if (here < 0) { removeVisitor(v, true); return; }
-    for (const [dx, dy] of N4) {
-      const nx = v.x + dx, ny = v.y + dy;
-      if (!cell(nx, ny)) continue;
-      const nd = dist[ny * COLS + nx];
-      if (nd >= 0 && nd < here) { setTarget(v, nx, ny); return; }
-    }
-    removeVisitor(v, true);
-    return;
-  }
-  const key = v.x + ',' + v.y;
-  v.visits[key] = (v.visits[key] || 0) + 1;
-  interact(v, c);
-  const accessible = S.ex.filter(exAccess);
-  const allSeen = accessible.every(e => v.seen.has(e.id));
-  if (v.left <= 0 || v.hap < 12 || (allSeen && v.left < v.stay * 0.55)) {
-    v.leaving = true;
-    v.thought = v.hap >= 70 ? 'Best day ever! Time to head home.' : v.hap >= 40 ? 'That was nice. Heading home now.' : 'I’m going home. That was disappointing.';
-    arrive(v);
-    return;
-  }
-  chooseNext(v);
-}
-function setTarget(v, x, y) { v.px = v.x; v.py = v.y; v.tx = x; v.ty = y; }
-
-function adjHas(x, y, test) {
-  for (const [dx, dy] of N4) { const c = cell(x + dx, y + dy); if (c && test(c)) return true; }
   return false;
 }
-function chooseNext(v) {
-  const opts = [];
-  for (const [dx, dy] of N4) {
-    const nx = v.x + dx, ny = v.y + dy, c = cell(nx, ny);
-    if (!walkable(c) || c.k === 'gate') continue;
-    let s = (v.visits[nx + ',' + ny] || 0) * 1.1 + Math.random() * 0.9;
-    if (nx === v.px && ny === v.py) s += 1.6;
-    if (adjHas(nx, ny, c2 => c2.k === 'ex' && !v.seen.has(c2.id))) s -= 1.3;
-    if (v.hunger > 55 && adjHas(nx, ny, c2 => c2.k === 'am' && c2.a === 'snack')) s -= 1.6;
-    if (v.thirst > 55 && adjHas(nx, ny, c2 => c2.k === 'am' && c2.a === 'drink')) s -= 1.6;
-    if (v.bladder > 60 && adjHas(nx, ny, c2 => c2.k === 'am' && c2.a === 'toilet')) s -= 2;
-    opts.push({ nx, ny, s });
+function stepOn(p, c) {
+  const x = p.x, y = p.y;
+  viewAdjacent(p);
+  let decor = 0;
+  for (const [dx, dy] of N8) { const n = cell(x + dx, y + dy); if (n && n.k === 'am' && FAC[n.a].decor) decor += FAC[n.a].decor; }
+  if (decor) p.hap = clamp(p.hap + Math.min(decor, 6) * 0.15);
+  if (c.litter) { p.hap = clamp(p.hap - 1.4 * c.litter); if (Math.random() < 0.4) p.thought = 'Ugh, there’s trash all over the path.'; }
+  if (p.trash) {
+    let bin = false;
+    for (let dy = -3; dy <= 3 && !bin; dy++) for (let dx = -3; dx <= 3; dx++) { const n = cell(x + dx, y + dy); if (n && n.k === 'am' && n.a === 'bin') { bin = true; break; } }
+    if (bin) p.trash = false;
+    else if (Math.random() < 0.3 && c.k === 'path') { c.litter = Math.min(3, (c.litter || 0) + 1); p.trash = false; }
   }
-  if (!opts.length) { v.leaving = true; if (v.x === GATE.x && v.y === GATE.y) { removeVisitor(v, true); } else { v.wait = 0.5; } return; }
-  opts.sort((a, b) => a.s - b.s);
-  setTarget(v, opts[0].nx, opts[0].ny);
 }
 
-function interact(v, here) {
-  for (const [dx, dy] of N4) {
-    const nx = v.x + dx, ny = v.y + dy, c = cell(nx, ny);
-    if (!c) continue;
-    if (c.k === 'ex' && !v.seen.has(c.id)) {
-      const ex = getEx(c.id);
-      if (!ex || !ex.animals.length) continue;
-      const sp = SP[ex.sp];
-      const babies = ex.animals.some(a => a.baby);
-      let gain = 2 + sp.appeal * 3.2 * (ex.hap / 100) * (babies ? 1.25 : 1) * (0.7 + 0.15 * Math.min(ex.animals.length, 4));
-      if (ex.hap < 35) gain = -6;
-      v.hap = clamp(v.hap + gain);
-      v.seen.add(ex.id);
-      v.lastSaw = ex.sp;
-      v.wait = rnd(0.9, 1.8);
-      if (ex.hap < 35) { v.thought = `The ${sp.name.toLowerCase()} look so unhappy.`; floatText(v.x + 0.5, v.y, '☹', '#ffb3a8'); }
-      else if (babies && Math.random() < 0.6) { v.thought = `Look, a baby ${sp.one}! So cute!`; floatText(v.x + 0.5, v.y, '♥', '#ff6f91'); }
-      else { v.thought = pick([`Wow, the ${sp.name.toLowerCase()} are amazing!`, `I love the ${sp.name.toLowerCase()}!`, `The ${sp.name.toLowerCase()} are my favourite.`]); if (gain > 6) floatText(v.x + 0.5, v.y, '♥', '#ff6f91'); }
+function removeParty(p, satisfied) {
+  const i = parties.indexOf(p);
+  if (i >= 0) parties.splice(i, 1);
+  if (satisfied) {
+    for (let k = 0; k < p.members.length; k++) S.sat.push(Math.round(p.hap));
+    while (S.sat.length > 60) S.sat.shift();
+    if (p.hap > 90 && Math.random() < 0.1) {
+      const tip = 20 + Math.floor(Math.random() * 5) * 10;
+      earn(tip, 'sale');
+      floatText(GATE.x + 0.5, GATE.y - 0.4, `+${fmt(tip)} donation`, '#ffe08a');
     }
-    if (c.k === 'am') {
-      const a = c.a;
-      if (a === 'snack' && v.hunger > 50 && Math.random() < 0.9) {
-        earn(7, 'sale'); c.earned = (c.earned || 0) + 7; v.spent += 7; v.hunger = 4; v.trash = true; v.wait = 1; v.hap = clamp(v.hap + 3);
-        v.thought = 'Yum, that burger hit the spot.'; floatText(nx + 0.5, ny, '+$7', '#ffe08a');
-      } else if (a === 'drink' && v.thirst > 50 && Math.random() < 0.9) {
-        earn(4, 'sale'); c.earned = (c.earned || 0) + 4; v.spent += 4; v.thirst = 4; v.trash = true; v.wait = 0.7; v.hap = clamp(v.hap + 2);
-        v.thought = 'Ahh, nice and cold.'; floatText(nx + 0.5, ny, '+$4', '#ffe08a');
-      } else if (a === 'toilet' && v.bladder > 55) {
-        v.bladder = 0; v.wait = 1.4; v.hap = clamp(v.hap + 3); c.earned = (c.earned || 0) + 1;
-        v.thought = 'Phew. Much better.';
-      } else if (a === 'gift' && !v.gift && v.hap > 65 && Math.random() < 0.55) {
-        earn(12, 'sale'); c.earned = (c.earned || 0) + 12; v.spent += 12; v.gift = true; v.balloon = pick(BALLOONS); v.wait = 1; v.hap = clamp(v.hap + 4);
-        v.thought = 'I got a balloon!'; floatText(nx + 0.5, ny, '+$12', '#ffe08a');
-      } else if (a === 'bench' && v.hap < 95 && Math.random() < 0.35) {
-        v.wait = 1.6; v.hap = clamp(v.hap + 3); v.thought = 'A nice spot for a rest.';
-      } else if (a === 'bin' && v.trash) {
-        v.trash = false;
+  }
+  if (sel && sel.type === 'party' && sel.p === p) { sel = { type: 'gone', name: p.name, hap: p.hap }; renderInspector(); }
+}
+
+function routeTo(p, goal, test) {
+  const route = bfs(p.i, walkable, test);
+  if (!route) return false;
+  p.route = route; p.ri = 0; p.goal = goal;
+  return true;
+}
+const amenTest = a => i => adjTest(i, c => c.k === 'am' && c.a === a);
+function leave(p) {
+  p.leaving = true;
+  if (!routeTo(p, { type: 'gate' }, i => i === GI)) removeParty(p, true);
+}
+function decide(p) {
+  if (p.leaving || !isOpen() || p.left <= 0 || p.hap < 12) {
+    if (!p.leaving) p.thought = p.hap >= 70 ? 'Best day ever! Time to head home.' : p.hap >= 40 ? 'That was nice. Heading home now.' : 'I’m going home. That was disappointing.';
+    leave(p); return;
+  }
+  const now = S.day * CYCLE + S.t;
+  const needs = [
+    ['toilet', p.bladder > 62, 'I can’t find a restroom anywhere!'],
+    ['snack', p.hunger > 58, 'There’s nowhere to buy food!'],
+    ['drink', p.thirst > 58, 'No drinks stand? I’m parched.'],
+    ['bench', p.energy < 25, 'My feet hurt. I wish there was a bench.'],
+  ];
+  for (const [a, want, sad] of needs) {
+    if (!want || (p.missing[a] && p.missing[a] > now)) continue;
+    if (routeTo(p, { type: a }, amenTest(a))) return;
+    p.missing[a] = now + 25;
+    p.hap = clamp(p.hap - (a === 'toilet' ? 8 : 5));
+    p.thought = sad;
+  }
+  // nearest exhibit not yet seen
+  const ok = routeTo(p, { type: 'exhibit' }, i => adjTest(i, c => c.k === 'ex' && !p.seen.has(c.id) && (getEx(c.id)?.animals.length > 0)));
+  if (ok) return;
+  if (!p.gift && p.hap > 60 && !(p.missing.gift > now) && routeTo(p, { type: 'gift' }, amenTest('gift'))) return;
+  if (!p.gift) p.missing.gift = now + 60;
+  if (p.left < p.stay * 0.45) { p.thought = p.hap >= 70 ? 'We’ve seen everything. What a day!' : 'I think we’ve seen it all.'; leave(p); return; }
+  routeTo(p, { type: 'wander' }, i => i !== p.i && Math.random() < 0.05) || leave(p);
+}
+function arriveGoal(p) {
+  const g = p.goal; p.goal = null; p.route = []; p.ri = 0;
+  if (!g) { decide(p); return; }
+  if (g.type === 'gate') { if (p.i === GI) removeParty(p, true); else leave(p); return; }
+  if (['snack', 'drink', 'toilet', 'bench', 'gift'].includes(g.type)) {
+    const x = p.x, y = p.y;
+    let found = null;
+    for (const [dx, dy] of N4) { const c = cell(x + dx, y + dy); if (c && c.k === 'am' && c.a === g.type) { found = { c, x: x + dx, y: y + dy }; break; } }
+    if (found) useAmenity(p, found.c, found.x, found.y);
+  }
+  if (g.type === 'exhibit') viewAdjacent(p);
+  decide(p);
+}
+function useAmenity(p, c, x, y) {
+  const n = p.members.length;
+  switch (c.a) {
+    case 'snack': {
+      const bill = 7 * n;
+      earn(bill, 'sale'); c.earned = (c.earned || 0) + bill; p.spent += bill;
+      p.hunger = 3; p.trash = true; p.wait = 2.2; p.hap = clamp(p.hap + 4);
+      p.thought = n > 1 ? 'Lunch for everyone. That hit the spot.' : 'Yum, that burger hit the spot.';
+      floatText(x + 0.5, y, '+' + fmt(bill), '#ffe08a'); break;
+    }
+    case 'drink': {
+      const bill = 4 * n;
+      earn(bill, 'sale'); c.earned = (c.earned || 0) + bill; p.spent += bill;
+      p.thirst = 3; p.trash = true; p.wait = 1.3; p.hap = clamp(p.hap + (S.weather.kind === 'heat' ? 6 : 3));
+      p.thought = S.weather.kind === 'heat' ? 'An ice-cold drink in this heat. Perfect.' : 'Ahh, nice and refreshing.';
+      floatText(x + 0.5, y, '+' + fmt(bill), '#ffe08a'); break;
+    }
+    case 'toilet':
+      p.bladder = 0; p.wait = 2.2; p.hap = clamp(p.hap + 3); c.earned = (c.earned || 0) + n;
+      p.thought = 'Phew. Much better.'; break;
+    case 'bench':
+      p.energy = clamp(p.energy + 60); p.wait = 3.5; p.hap = clamp(p.hap + 3);
+      p.thought = 'A nice spot to rest our feet.'; break;
+    case 'gift': {
+      const buyers = p.kids || 1;
+      const bill = 12 * buyers;
+      earn(bill, 'sale'); c.earned = (c.earned || 0) + bill; p.spent += bill; p.gift = true; p.wait = 1.6; p.hap = clamp(p.hap + 5);
+      let k = 0;
+      for (const m of p.members) if ((p.kids ? m.kid : true) && k < buyers) { m.balloon = pick(BALLOONS); k++; }
+      p.thought = p.kids ? 'The kids picked out balloons!' : 'I got a souvenir balloon!';
+      floatText(x + 0.5, y, '+' + fmt(bill), '#ffe08a'); break;
+    }
+  }
+}
+
+/* =========================================================
+   STAFF
+========================================================= */
+function syncStaff() {
+  for (const role of Object.keys(STAFF)) {
+    const want = S.staff[role] || 0;
+    let have = staff.filter(s => s.role === role);
+    while (have.length < want) {
+      const s = { id: nextPid++, role, x: GATE.x, y: GATE.y, i: GI, route: [], ri: 0, job: null, wait: rnd(0, 1.5), name: pick(FIRST), moving: false, done: 0 };
+      staff.push(s); have.push(s);
+    }
+    while (have.length > want) { const s = have.pop(); staff.splice(staff.indexOf(s), 1); if (sel && sel.type === 'staff' && sel.s === s) select(null); }
+  }
+}
+function claimed(role, key) { return staff.some(s => s.role === role && s.job && s.job.key === key); }
+function findJob(s) {
+  if (s.role === 'keeper') {
+    const cands = S.ex.filter(e => e.animals.length && (e.food < 55 || e.dirt > 45) && !claimed('keeper', 'ex' + e.id)).sort((a, b) => Math.min(a.food, 100 - a.dirt) - Math.min(b.food, 100 - b.dirt));
+    for (const e of cands) {
+      const route = bfs(s.i, staffPass, i => adjTest(i, c => c.k === 'ex' && c.id === e.id));
+      if (route) return { key: 'ex' + e.id, ex: e.id, route, text: `Heading to the ${SP[e.sp].name.toLowerCase()}` };
+    }
+  } else if (s.role === 'vet') {
+    const cands = S.ex.filter(e => e.animals.length && e.health < 60 && !claimed('vet', 'ex' + e.id)).sort((a, b) => a.health - b.health);
+    for (const e of cands) {
+      const route = bfs(s.i, staffPass, i => adjTest(i, c => c.k === 'ex' && c.id === e.id));
+      if (route) return { key: 'ex' + e.id, ex: e.id, route, text: `Checking on the ${SP[e.sp].name.toLowerCase()}` };
+    }
+  } else if (s.role === 'janitor') {
+    const route = bfs(s.i, staffPass, i => S.grid[i].litter > 0 && !claimed('janitor', 'l' + i));
+    if (route) { const i = route.length ? route[route.length - 1] : s.i; return { key: 'l' + i, tile: i, route, text: 'Sweeping up litter' }; }
+  }
+  return null;
+}
+function updateStaff(s, dt) {
+  const here = S.grid[s.i];
+  if (!staffPass(here) && here.k !== 'am') {
+    // got walled in by a new building: walk back out through the gate
+    s.x = GATE.x; s.y = GATE.y; s.i = GI; s.route = []; s.ri = 0; s.job = null;
+  }
+  if (s.wait > 0) { s.wait -= dt; s.moving = false; return; }
+  if (s.ri >= s.route.length) {
+    if (s.job && s.job.arrived) { finishJob(s); return; }
+    if (s.job) { s.job.arrived = true; s.wait = s.role === 'vet' ? 3 : s.role === 'keeper' ? 2.5 : 1.2; s.working = true; return; }
+    const job = findJob(s);
+    if (job) { s.job = job; s.route = job.route; s.ri = 0; return; }
+    // idle: amble to a nearby path tile
+    s.job = null; s.working = false;
+    const r = bfs(s.i, walkable, i => i !== s.i && Math.random() < 0.08);
+    if (r && r.length < 10) { s.route = r; s.ri = 0; } else s.wait = rnd(1, 3);
+    s.wait = Math.max(s.wait, rnd(0.5, 2));
+    return;
+  }
+  const next = s.route[s.ri];
+  const tx = next % COLS, ty = (next / COLS) | 0;
+  const dx = tx - s.x, dy = ty - s.y, d = Math.hypot(dx, dy);
+  const step = (s.job ? 1.9 : 0.9) * dt;
+  s.moving = true;
+  if (d <= step) {
+    s.x = tx; s.y = ty; s.i = next; s.ri++;
+    if (!staffPass(S.grid[next])) { s.route = []; s.ri = 0; s.job = null; }
+  } else { s.x += dx / d * step; s.y += dy / d * step; }
+}
+function finishJob(s) {
+  const j = s.job; s.job = null; s.working = false; s.route = []; s.ri = 0;
+  if (j.ex) {
+    const ex = getEx(j.ex);
+    if (!ex) return;
+    if (s.role === 'keeper') {
+      if (ex.food < 70) {
+        const cost = feedCost(ex);
+        if (S.money >= cost) { spend(cost, true); ex.food = 100; floatText(s.x + 0.5, s.y, '🥕', '#fff'); }
+        else floatText(s.x + 0.5, s.y, 'No cash for feed', '#ffb3a8');
       }
+      if (ex.dirt > 20) { ex.dirt = 0; floatText(s.x + 0.5, s.y - 0.4, '🧽', '#fff'); }
+      s.done++;
+    } else if (s.role === 'vet') {
+      if (S.money >= 60) { spend(60, true); ex.health = Math.max(ex.health, 92); floatText(s.x + 0.5, s.y, '💊', '#fff'); s.done++; }
     }
-  }
-  // scenery
-  let decor = 0;
-  for (const [dx, dy] of N8) { const c = cell(v.x + dx, v.y + dy); if (c && c.k === 'am' && FAC[c.a].decor) decor += FAC[c.a].decor; }
-  if (decor) v.hap = clamp(v.hap + Math.min(decor, 6) * 0.2);
-  // litter
-  if (here.litter) {
-    v.hap = clamp(v.hap - 1.6 * here.litter);
-    if (Math.random() < 0.5) v.thought = 'Ugh, there’s trash all over the path.';
-  }
-  if (v.trash) {
-    let bin = false;
-    for (let dx = -2; dx <= 2 && !bin; dx++) for (let dy = -2; dy <= 2; dy++) { const c = cell(v.x + dx, v.y + dy); if (c && c.k === 'am' && c.a === 'bin') { bin = true; break; } }
-    if (bin) v.trash = false;
-    else if (Math.random() < 0.3 && here.k === 'path') { here.litter = Math.min(3, (here.litter || 0) + 1); v.trash = false; }
+  } else if (j.tile !== undefined) {
+    const c = S.grid[j.tile];
+    if (c.litter) { c.litter = 0; floatText(j.tile % COLS + 0.5, ((j.tile / COLS) | 0) + 0.3, '✨', '#fff'); s.done++; }
   }
 }
 
 /* =========================================================
    SIMULATION
 ========================================================= */
-let spawnAcc = 0, janAcc = 0, secAcc = 0;
+let spawnAcc = 0, secAcc = 0, closingWarned = false;
 
 function tick(dt) {
+  const wasOpen = isOpen();
   S.t += dt;
-  if (S.t >= DAY) { S.t -= DAY; endDay(); }
+  if (wasOpen && !isOpen()) closeDay();
+  if (S.t >= CYCLE) { S.t -= CYCLE; newDay(); }
 
-  spawnAcc += visitorsPerDay() / DAY * dt / 2.0; // groups average ~2 people
-  while (spawnAcc >= 1) { spawnAcc -= 1; spawnGroup(); }
+  if (isOpen() && S.t < OPEN * 0.85) {
+    spawnAcc += visitorsPerDay() / OPEN / 2.4 * dt;
+    while (spawnAcc >= 1) { spawnAcc -= 1; spawnArrival(); }
+  }
+  if (isOpen() && S.t > OPEN * 0.94 && !closingWarned) { closingWarned = true; if (parties.length) toast('🔔 The zoo closes in 30 minutes'); }
 
-  // exhibits
+  const nightRate = isOpen() ? 1 : 0.35;
   for (const ex of S.ex) {
-    ex.food = clamp(ex.food - dt * 100 / (1.4 * DAY));
-    if (ex.food < 35 && keeperCovered(ex) && ex.animals.length) {
-      const cost = feedCost(ex);
-      if (S.money >= cost) { spend(cost, true); ex.food = 100; floatText(ex.x + 1.5, ex.y + 0.6, '🥕 fed', '#ffffff'); }
-    }
     const n = ex.animals.length;
-    let target = 20 + ex.food * 0.45 + (n >= 2 ? 12 : 0) + Math.min(15, decorNear(ex) * 2.5);
+    ex.food = clamp(ex.food - dt * nightRate * 100 / (OPEN * 1.15));
+    ex.dirt = clamp(ex.dirt + dt * nightRate * n * 100 / (OPEN * 3.2));
+    const sp = SP[ex.sp];
+    let social = 0;
+    if (sp.social === 'herd') social = n >= 3 ? 15 : n === 2 ? 10 : -8;
+    else if (sp.social === 'pair') social = n === 2 ? 12 : n === 1 ? 2 : 6;
+    else social = n === 1 ? 10 : n === 2 ? 5 : -10;
+    const cap = capacity(sp, ex.w, ex.h);
+    const space = n <= cap * 0.7 ? 6 : 2;
+    let target = 22 + ex.food * 0.3 + (100 - ex.dirt) * 0.15 + social + space + Math.min(12, decorNear(ex) * 2);
     if (ex.food < 10) target -= 15;
+    if (ex.health < 45) target -= 15;
     if (!n) target = 0;
-    ex.hap += (clamp(target) - ex.hap) * Math.min(1, dt * 0.25);
+    ex.hap += (clamp(target) - ex.hap) * Math.min(1, dt * 0.2);
+    let hTarget = 100 - (ex.food < 20 ? 35 : 0) - (ex.dirt > 65 ? 35 : ex.dirt > 45 ? 10 : 0) - (ex.hap < 30 ? 20 : 0);
+    ex.health += (clamp(hTarget) - ex.health) * Math.min(1, dt * (hTarget < ex.health ? 0.018 : 0.006));
   }
   updateAnimals(dt);
-
-  for (const v of [...visitors]) updateVisitor(v, dt);
-
-  // janitors
-  if (S.janitors > 0) {
-    janAcc += dt;
-    const every = 5 / S.janitors;
-    while (janAcc >= every) {
-      janAcc -= every;
-      let best = -1, bv = 0;
-      S.grid.forEach((c, i) => { if ((c.litter || 0) > bv) { bv = c.litter; best = i; } });
-      if (best >= 0) { S.grid[best].litter = 0; floatText(best % COLS + 0.5, Math.floor(best / COLS) + 0.3, '✨', '#ffffff'); }
-    }
-  }
+  for (const p of [...parties]) updateParty(p, dt);
+  for (const s of staff) updateStaff(s, dt);
 
   secAcc += dt;
   if (secAcc >= 1) {
     secAcc -= 1;
     updateRating(1);
-    if (S.rating >= 1.5 && Math.random() < 1 / (DAY * 2.5)) schoolTrip();
+    if (isOpen() && S.t < OPEN * 0.7 && S.rating >= 1.5 && S.weather.kind !== 'rain' && Math.random() < 1 / (OPEN * 3)) schoolTrip();
+    for (const ex of S.ex) {
+      if (ex.health < 45 && !ex.sickNotified) { ex.sickNotified = true; addNews(`A ${SP[ex.sp].one} has fallen ill. Call a vet or clean up the enclosure.`); toast(`🤒 A ${SP[ex.sp].one} is sick`, 'bad'); }
+      if (ex.health > 60) ex.sickNotified = false;
+    }
   }
 }
 
+function ratingParts() {
+  const exs = S.ex.filter(e => e.animals.length);
+  const sat = S.sat.length ? S.sat.reduce((a, b) => a + b, 0) / S.sat.length / 100 : 0.65;
+  const welfare = exs.length ? exs.reduce((a, e) => a + e.hap * (e.health < 45 ? 0.6 : 1), 0) / exs.length / 100 : 0;
+  const variety = Math.min(speciesCount(), 10) / 10;
+  const scenery = Math.min(sceneryScore(), 60) / 60;
+  const avgDirt = exs.length ? exs.reduce((a, e) => a + e.dirt, 0) / exs.length : 0;
+  const clean = clamp(1 - Math.min(1, litterTotal() * 0.035 + Math.max(0, avgDirt - 30) / 140), 0, 1);
+  return { sat, welfare, variety, scenery, clean, n: exs.length };
+}
 function updateRating(dt) {
+  const r = ratingParts();
   let target = 0.5;
-  if (S.ex.length) {
-    const sat = S.sat.length ? S.sat.reduce((a, b) => a + b, 0) / S.sat.length : 65;
-    const ah = S.ex.reduce((a, e) => a + e.hap, 0) / S.ex.length;
-    const quality = (sat * 0.55 + ah * 0.45) / 100;
-    const variety = Math.min(speciesCount(), 8) / 8;
-    const scenery = Math.min(decorTotal(), 40) / 40;
-    target = 0.4 + 2.6 * quality * (0.35 + 0.65 * variety) + 1.2 * variety + 0.6 * scenery - Math.min(0.8, litterTotal() * 0.03);
+  if (r.n) {
+    const quality = 0.5 * r.sat + 0.5 * r.welfare;
+    target = 5 * (0.40 * quality * (0.3 + 0.7 * r.variety) + 0.30 * r.variety + 0.12 * r.scenery + 0.18 * r.clean * Math.min(1, r.n / 3));
   }
-  target = clamp(target, 0, 5);
-  S.rating += (target - S.rating) * Math.min(1, 0.03 * dt);
+  S.rating += (clamp(target, 0, 5) - S.rating) * Math.min(1, 0.025 * dt);
 }
 
 function schoolTrip() {
-  if (!walkable(cell(GATE.x, GATE.y - 1)) || attraction() <= 0) return;
-  const n = 10 + Math.floor(Math.random() * 6);
+  if (!reach[GI - COLS] || attraction() <= 0) return;
+  const kids = 12 + Math.floor(Math.random() * 8);
   const fee = Math.max(1, Math.round(S.price / 2));
   let came = 0;
-  for (let i = 0; i < n; i++) {
-    const v = spawnVisitor({ hap: 72, paid: fee });
-    if (!v) break;
-    v.shirt = '#f4b63f'; v.thought = 'School trip! Best day of the year!'; v.y += i * 0.06;
-    earn(fee, 'ticket'); S.totals.visitors++; S.today.visitors++; came++;
+  for (let g = 0; g < Math.ceil(kids / 4); g++) {
+    const members = [];
+    const OFF = [[0, 0], [0.2, 0.12], [-0.2, 0.12], [0.08, -0.2], [-0.14, -0.18]];
+    const k = Math.min(4, kids - came);
+    members.push({ kid: false, shirt: '#1d3a29', skin: pick(SKINS), hair: pick(HAIR), ox: 0, oy: 0, ph: Math.random() * 6, umb: null });
+    for (let i = 0; i < k; i++) members.push({ kid: true, shirt: '#f4b63f', skin: pick(SKINS), hair: pick(HAIR), ox: OFF[i + 1][0], oy: OFF[i + 1][1], ph: Math.random() * 6, umb: null });
+    const p = spawnParty({ makeup: { adults: 1, kids: k, name: `Class ${['3B', '4A', '5C', '2D', '6A'][g % 5]} school trip`, members }, hap: 72, paid: fee * k, school: true });
+    if (!p) break;
+    p.thought = 'School trip! Best day of the year!';
+    earn(fee * k, 'ticket'); S.totals.visitors += k + 1; S.today.visitors += k + 1; came += k;
   }
-  if (came) { addNews(`A school trip arrived. ${came} students came through the gate at half price.`); toast(`🚌 School trip! ${came} students arrived`, 'good'); }
+  if (came) { addNews(`A school trip arrived: ${came} pupils and their teachers, at half price.`); toast(`🚌 School trip! ${came} pupils arrived`, 'good'); }
 }
 
-function endDay() {
-  const exUp = S.ex.length * 30;
+function dayCosts() {
+  const exUp = S.ex.reduce((a, e) => a + exUpkeep(e), 0);
   let facUp = 0;
   S.grid.forEach(c => { if (c.k === 'am') facUp += FAC[c.a].up || 0; });
-  const staff = S.keepers * 150 + S.janitors * 100;
-  const total = exUp + facUp + staff;
-  spend(total, true);
+  const wages = Object.keys(STAFF).reduce((a, r) => a + (S.staff[r] || 0) * STAFF[r].wage, 0);
+  return { exUp, facUp, wages, total: exUp + facUp + wages };
+}
+function closeDay() {
+  closingWarned = false;
+  for (const p of parties) { if (!p.leaving) { p.thought = 'Closing time already? Let’s come back soon.'; p.leaving = true; p.route = []; p.ri = 0; p.goal = null; } }
+  const costs = dayCosts();
+  S.money -= costs.total;
   const t = S.today;
   const income = t.tickets + t.sales;
-  addNews(`Day ${S.day} closed. ${t.visitors} visitors came. Earned ${fmt(income)} (${fmt(t.tickets)} tickets, ${fmt(t.sales)} food and gifts). Spent ${fmt(t.costs)} on upkeep, staff and feed.`);
-  toast(`Day ${S.day} closed: ${income - t.costs >= 0 ? '+' : ''}${fmt(income - t.costs)} profit`, income - t.costs >= 0 ? 'good' : 'bad');
-
-  // babies and growing up
+  const profit = income - t.care - costs.total;
+  S.lastReport = { day: S.day, visitors: t.visitors, tickets: t.tickets, sales: t.sales, care: t.care, upkeep: costs.exUp + costs.facUp, wages: costs.wages, profit, rating: S.rating, startRating: t.startRating };
+  addNews(`Day ${S.day} closed. ${t.visitors} guests, ${fmt(income)} taken, ${profit >= 0 ? 'a profit of ' + fmt(profit) : 'a loss of ' + fmt(-profit)}.`);
+  if (S.money < 0) addNews('The zoo is in the red. Raise ticket prices, add food stands or let some staff go.');
+  showReport();
+  save();
+}
+function newDay() {
+  // overnight: births, growing up
   for (const ex of S.ex) {
-    for (const a of ex.animals) { a.age = (a.age || 0) + 1; if (a.baby && a.age >= 2) a.baby = false; }
+    for (const a of ex.animals) { a.age = (a.age || 0) + 1; if (a.baby && a.age >= 3) a.baby = false; }
+    const sp = SP[ex.sp];
     const adults = ex.animals.filter(a => !a.baby).length;
-    if (adults >= 2 && ex.hap >= 70 && ex.animals.length < CAP && Math.random() < 0.4) {
+    const cap = capacity(sp, ex.w, ex.h);
+    if (adults >= 2 && ex.hap >= 70 && ex.health >= 60 && ex.animals.length < cap && Math.random() < 0.35) {
       ex.animals.push({ baby: true, age: 0 });
       S.totals.babies++;
-      const sp = SP[ex.sp];
-      addNews(`A baby ${sp.one} was born! Visitors will flock to see it.`);
-      setTimeout(() => toast(`🍼 A baby ${sp.one} was born!`, 'good'), 2600);
-      floatText(ex.x + 1.5, ex.y + 1, '🍼', '#ffffff');
+      addNews(`Overnight, a baby ${sp.one} was born! Guests will flock to see it.`);
+      setTimeout(() => toast(`🍼 A baby ${sp.one} was born overnight!`, 'good'), 400);
     }
-    if (ex.food < 5 && ex.animals.length) addNews(`The ${SP[ex.sp].name.toLowerCase()} are hungry and unhappy. Feed them or hire a zookeeper.`);
+    if (ex.food < 5 && ex.animals.length) addNews(`The ${sp.name.toLowerCase()} went hungry overnight. Feed them or hire a zookeeper.`);
   }
-  if (S.money < 0) addNews('The zoo is in the red. Raise ticket prices, build food stands or cut staff.');
   S.day++;
-  S.today = { tickets: 0, sales: 0, costs: 0, visitors: 0 };
+  S.weather = S.tomorrow || rollWeather(S.day);
+  S.tomorrow = rollWeather(S.day + 1);
+  S.today = { tickets: 0, sales: 0, care: 0, visitors: 0, startRating: S.rating };
+  const w = WEATHER[S.weather.kind];
+  if (S.weather.kind === 'rain') addNews(`Day ${S.day}: rain today, ${S.weather.temp}°C. Expect a quieter crowd.`);
+  else if (S.weather.kind === 'heat') addNews(`Day ${S.day}: heatwave, ${S.weather.temp}°C. Drinks stands will be busy.`);
+  hideReport();
+  toast(`${w.e} Day ${S.day}: ${w.name}, ${S.weather.temp}°C. Gates open!`);
   save();
 }
 
 /* =========================================================
    BUILDING
 ========================================================= */
-let tool = 'inspect', tab = 'animals', sel = null, hover = null, pointerDown = false, lastAct = null;
+let tool = 'inspect', tab = 'animals', sel = null, hover = null, penSize = 3;
 
-function toolCost(t) {
+function toolSpecies(t) { return t && t.startsWith('ex:') ? SP[t.slice(3)] : null; }
+function toolFac(t) { return t && t.startsWith('fac:') ? FAC[t.slice(4)] : null; }
+function isPaint(t) { return t === 'path' || t === 'bulldoze' || !!toolFac(t)?.paint; }
+function toolStar(t) { return toolSpecies(t)?.star ?? toolFac(t)?.star ?? 0; }
+function baseCost(t) {
   if (t === 'path') return 10;
-  if (t.startsWith('ex:')) return PEN + SP[t.slice(3)].cost;
-  if (t.startsWith('fac:')) return FAC[t.slice(4)].cost;
+  const sp = toolSpecies(t); if (sp) return penCost(penSize) + sp.cost;
+  const f = toolFac(t); if (f) return f.cost;
   return 0;
 }
-function toolStar(t) {
-  if (t.startsWith('ex:')) return SP[t.slice(3)].star;
-  if (t.startsWith('fac:')) return FAC[t.slice(4)].star || 0;
-  return 0;
+function footprint(t, x, y) {
+  if (toolSpecies(t)) { const s = penSize, o = Math.floor((s - 1) / 2); return { x: x - o, y: y - o, w: s, h: s }; }
+  return { x, y, w: 1, h: 1 };
 }
-function canPlace(t, x, y) {
-  if (t === 'path' || t.startsWith('fac:')) {
-    const c = cell(x, y);
-    if (!c) return { ok: false };
-    if (c.k !== 'grass') return { ok: false, reason: 'That spot is taken.' };
-    return { ok: true };
+function checkPlace(t, x, y) {
+  const fp = footprint(t, x, y);
+  let clear = 0;
+  for (let yy = fp.y; yy < fp.y + fp.h; yy++) for (let xx = fp.x; xx < fp.x + fp.w; xx++) {
+    const c = cell(xx, yy);
+    if (!c) return { ok: false, fp, reason: 'That doesn’t fit inside the zoo.' };
+    if (c.k === 'grass') continue;
+    if (c.k === 'am' && CLEARABLE.has(c.a)) { clear++; continue; }
+    return { ok: false, fp, reason: c.k === 'water' ? 'You can’t build on the water.' : 'Something is already there.' };
   }
-  if (t.startsWith('ex:')) {
-    const x0 = x - 1, y0 = y - 1;
-    for (let yy = y0; yy < y0 + 3; yy++) for (let xx = x0; xx < x0 + 3; xx++) {
-      const c = cell(xx, yy);
-      if (!c) return { ok: false, reason: 'The exhibit doesn’t fit there.', x0, y0 };
-      if (c.k !== 'grass') return { ok: false, reason: 'Exhibits need a clear 3×3 patch of grass.', x0, y0 };
-    }
-    return { ok: true, x0, y0 };
+  if (toolSpecies(t)) {
+    const busy = staff.some(s => s.x >= fp.x - 0.5 && s.x < fp.x + fp.w - 0.5 && s.y >= fp.y - 0.5 && s.y < fp.y + fp.h - 0.5);
+    if (busy) return { ok: false, fp, reason: 'A staff member is standing there.' };
   }
-  return { ok: false };
+  return { ok: true, fp, clear, cost: baseCost(t) + clear * 15 };
 }
 
-function act(p, first) {
-  if (!p) return;
-  const key = p.x + ',' + p.y;
-  if (!first && lastAct === key) return;
-  lastAct = key;
-  if (tool === 'inspect') { if (first) inspectAt(p); return; }
-  if (tool === 'bulldoze') { bulldoze(p.x, p.y, first); return; }
+function act(tx, ty, first) {
+  if (tx == null) return;
+  if (tool === 'bulldoze') { bulldoze(tx, ty, first); return; }
   const star = toolStar(tool);
   if (S.rating + 1e-6 < star) { if (first) toast(`Needs a ${star}-star rating`, 'bad'); return; }
-  const cost = toolCost(tool);
-  const chk = canPlace(tool, p.x, p.y);
+  const chk = checkPlace(tool, tx, ty);
   if (!chk.ok) { if (first && chk.reason) toast(chk.reason, 'bad'); return; }
-  if (S.money < cost) { if (first || tool === 'path') toast(`Not enough cash. You need ${fmt(cost)}.`, 'bad'); pointerDown = false; return; }
+  if (S.money < chk.cost) { if (first) toast(`Not enough cash. You need ${fmt(chk.cost)}.`, 'bad'); return; }
+  const fp = chk.fp;
   if (tool === 'path') {
-    spend(cost); setCell(p.x, p.y, { k: 'path' }); computeDist(); bgDirty = true;
+    spend(chk.cost); setCell(tx, ty, { k: 'path' }); computeReach(); bgDirty = true; return;
+  }
+  const f = toolFac(tool);
+  if (f) {
+    spend(chk.cost); setCell(tx, ty, { k: 'am', a: tool.slice(4), earned: 0 }); bgDirty = true;
+    floatText(tx + 0.5, ty, '−' + fmt(chk.cost), '#ffb3a8');
     return;
   }
-  if (tool.startsWith('fac:')) {
-    const a = tool.slice(4);
-    spend(cost); setCell(p.x, p.y, { k: 'am', a, earned: 0 }); bgDirty = true;
-    floatText(p.x + 0.5, p.y, '−' + fmt(cost), '#ffb3a8');
-    return;
-  }
-  if (tool.startsWith('ex:') && first) {
-    const sp = SP[tool.slice(3)];
-    spend(cost);
-    const ex = { id: S.nextId++, sp: sp.id, x: chk.x0, y: chk.y0, animals: [{ baby: false, age: 3 }], food: 100, hap: 60 };
+  const sp = toolSpecies(tool);
+  if (sp) {
+    spend(chk.cost);
+    const ex = { id: S.nextId++, sp: sp.id, x: fp.x, y: fp.y, w: fp.w, h: fp.h, animals: [{ baby: false, age: 4 }], food: 100, dirt: 0, health: 100, hap: 60 };
     S.ex.push(ex);
-    for (let yy = ex.y; yy < ex.y + 3; yy++) for (let xx = ex.x; xx < ex.x + 3; xx++) setCell(xx, yy, { k: 'ex', id: ex.id });
+    for (let yy = ex.y; yy < ex.y + ex.h; yy++) for (let xx = ex.x; xx < ex.x + ex.w; xx++) setCell(xx, yy, { k: 'ex', id: ex.id });
     bgDirty = true;
-    floatText(ex.x + 1.5, ex.y + 1, '−' + fmt(cost), '#ffb3a8');
-    addNews(`${sp.name} exhibit opened. A lone ${sp.one} is exploring its new ${HAB[sp.hab].name.toLowerCase()}.`);
-    if (!exAccess(ex)) toast('Built! Now connect it to a path so visitors can see it.', 'good');
-    else toast(`${sp.name} exhibit open! Add a second ${sp.one} to keep it company.`, 'good');
+    floatText(ex.x + ex.w / 2, ex.y + ex.h / 2, '−' + fmt(chk.cost), '#ffb3a8');
+    addNews(`${sp.name} exhibit opened: a ${ex.w}×${ex.h} ${HAB[sp.hab].name.toLowerCase()} with room for ${capacity(sp, ex.w, ex.h)}.${chk.clear ? ` Cleared ${chk.clear} trees and rocks.` : ''}`);
+    if (!exAccess(ex)) toast('Built! Now lay a path beside it so guests can see it.', 'good');
+    else toast(sp.social === 'solo' ? `${sp.name} exhibit open! ${sp.name} prefer living alone.` : `${sp.name} exhibit open! Add more ${sp.name.toLowerCase()} so it isn’t lonely.`, 'good');
     setTool('inspect');
     select({ type: 'ex', id: ex.id });
   }
 }
 
+let pendingDemolish = null;
 function bulldoze(x, y, first) {
   const c = cell(x, y);
   if (!c) return;
   if (c.k === 'gate') { if (first) toast('You can’t remove the entrance.', 'bad'); return; }
-  if (c.k === 'water') { if (first) toast('The pond stays.', 'bad'); return; }
-  if (c.k === 'path') {
-    setCell(x, y, { k: 'grass' }); computeDist(); bgDirty = true; return;
-  }
+  if (c.k === 'water') { if (first) toast('The lake stays.', 'bad'); return; }
+  if (c.k === 'path') { setCell(x, y, { k: 'grass' }); computeReach(); bgDirty = true; return; }
   if (c.k === 'am') {
-    const f = FAC[c.a], back = Math.round(f.cost / 2);
-    S.money += back; setCell(x, y, { k: 'grass' }); bgDirty = true;
-    floatText(x + 0.5, y, '+' + fmt(back), '#ffe08a');
+    const f = FAC[c.a], back = c.wild || f.natural ? 0 : Math.round(f.cost / 2);
+    if ((c.wild || f.natural) && S.money < 15) { if (first) toast('Clearing costs $15.', 'bad'); return; }
+    if (c.wild || f.natural) spend(15); else S.money += back;
+    setCell(x, y, { k: 'grass' }); bgDirty = true;
+    floatText(x + 0.5, y, back ? '+' + fmt(back) : '−$15', back ? '#ffe08a' : '#ffb3a8');
     if (sel && sel.type === 'fac' && sel.x === x && sel.y === y) select(null);
     return;
   }
   if (c.k === 'ex' && first) {
     const ex = getEx(c.id);
-    if (ex) {
-      if (!pendingDemolish || pendingDemolish !== ex.id) {
-        pendingDemolish = ex.id; select({ type: 'ex', id: ex.id });
-        toast('Tap the exhibit again to demolish it.', 'bad');
-        setTimeout(() => { if (pendingDemolish === ex.id) pendingDemolish = null; }, 3000);
-        return;
-      }
-      demolishEx(ex);
+    if (!ex) return;
+    if (pendingDemolish !== ex.id) {
+      pendingDemolish = ex.id; select({ type: 'ex', id: ex.id });
+      toast('Tap the exhibit again to demolish it.', 'bad');
+      setTimeout(() => { if (pendingDemolish === ex.id) pendingDemolish = null; }, 3000);
+      return;
     }
+    demolishEx(ex);
   }
 }
-let pendingDemolish = null;
 function demolishEx(ex) {
   const sp = SP[ex.sp];
-  const back = Math.round(PEN / 2 + ex.animals.length * sp.cost / 2);
+  const back = Math.round(penCost(ex.w) / 2 + ex.animals.length * sp.cost / 2);
   S.money += back;
-  for (let yy = ex.y; yy < ex.y + 3; yy++) for (let xx = ex.x; xx < ex.x + 3; xx++) setCell(xx, yy, { k: 'grass' });
+  for (let yy = ex.y; yy < ex.y + ex.h; yy++) for (let xx = ex.x; xx < ex.x + ex.w; xx++) setCell(xx, yy, { k: 'grass' });
   S.ex = S.ex.filter(e => e !== ex);
   animPos.delete(ex.id);
-  pendingDemolish = null;
-  bgDirty = true;
-  floatText(ex.x + 1.5, ex.y + 1, '+' + fmt(back), '#ffe08a');
+  pendingDemolish = null; bgDirty = true;
+  floatText(ex.x + ex.w / 2, ex.y + ex.h / 2, '+' + fmt(back), '#ffe08a');
   addNews(`The ${sp.name.toLowerCase()} were rehomed at another zoo. You got ${fmt(back)} back.`);
   if (sel && sel.type === 'ex' && sel.id === ex.id) select(null);
 }
 
-function inspectAt(p) {
-  // visitors first
-  let best = null, bd = 0.45;
-  for (const v of visitors) {
-    const d = Math.hypot(v.x + 0.5 + v.ox - p.fx, v.y + 0.5 + v.oy - p.fy);
-    if (d < bd) { bd = d; best = v; }
-  }
-  if (best) { select({ type: 'vis', v: best }); return; }
-  const c = cell(p.x, p.y);
-  if (!c) return;
+function inspectAt(wx, wy) {
+  let best = null, bd = 0.5;
+  for (const s of staff) { const d = Math.hypot(s.x + 0.5 - wx, s.y + 0.5 - wy); if (d < bd) { bd = d; best = { type: 'staff', s }; } }
+  for (const p of parties) { const d = Math.hypot(p.x + 0.5 - wx, p.y + 0.5 - wy); if (d < bd) { bd = d; best = { type: 'party', p }; } }
+  if (best) { select(best); return; }
+  const x = Math.floor(wx), y = Math.floor(wy), c = cell(x, y);
+  if (!c) { select(null); return; }
   if (c.k === 'ex') select({ type: 'ex', id: c.id });
-  else if (c.k === 'am') select({ type: 'fac', x: p.x, y: p.y });
+  else if (c.k === 'am') select({ type: 'fac', x, y });
   else if (c.k === 'gate') select({ type: 'gate' });
   else select(null);
 }
@@ -1194,56 +1588,100 @@ function inspectAt(p) {
    RENDER
 ========================================================= */
 const floats = [];
-function floatText(x, y, text, color) {
-  floats.push({ x, y, text, color, t: 0 });
-  if (floats.length > 60) floats.shift();
+function floatText(x, y, text, color) { floats.push({ x, y, text, color, t: 0 }); if (floats.length > 80) floats.shift(); }
+const rain = Array.from({ length: 140 }, () => ({ x: Math.random(), y: Math.random(), s: rnd(0.6, 1.2) }));
+
+function darkness() {
+  // 0 by day, ~0.62 at night; dusk from 5pm, dawn until 9am
+  const t = S.t;
+  if (t < OPEN * 0.85) return 0;
+  if (t < OPEN) return (t - OPEN * 0.85) / (OPEN * 0.15) * 0.25;
+  const n = (t - OPEN) / NIGHT;
+  if (n < 0.15) return 0.25 + n / 0.15 * 0.37;
+  if (n > 0.85) return 0.62 * (1 - (n - 0.85) / 0.15);
+  return 0.62;
+}
+
+function drawPerson(g, x, y, m, time, moving, sc) {
+  const r = m.kid ? 0.085 : 0.115;
+  const bob = moving ? Math.abs(Math.sin(time * 11 + m.ph)) * 0.035 : 0;
+  g.fillStyle = 'rgba(0,0,0,0.2)'; g.beginPath(); g.ellipse(x, y + r * 1.2, r * 0.95, r * 0.4, 0, 0, 7); g.fill();
+  const by = y - bob;
+  if (sc > 26) {
+    // legs
+    g.strokeStyle = '#3a3f4a'; g.lineWidth = r * 0.45;
+    const sw = moving ? Math.sin(time * 11 + m.ph) * r * 0.35 : 0;
+    g.beginPath(); g.moveTo(x - r * 0.35, by + r * 0.5); g.lineTo(x - r * 0.35 + sw, by + r * 1.15); g.moveTo(x + r * 0.35, by + r * 0.5); g.lineTo(x + r * 0.35 - sw, by + r * 1.15); g.stroke();
+  }
+  g.fillStyle = m.shirt; g.beginPath(); g.arc(x, by, r, 0, 7); g.fill();
+  g.strokeStyle = 'rgba(0,0,0,0.25)'; g.lineWidth = 0.02; g.stroke();
+  g.fillStyle = m.skin; g.beginPath(); g.arc(x, by - r * 1.1, r * 0.66, 0, 7); g.fill();
+  g.fillStyle = m.hair; g.beginPath(); g.arc(x, by - r * 1.25, r * 0.6, Math.PI, 0); g.fill();
+  if (m.balloon) {
+    g.strokeStyle = 'rgba(40,40,40,0.6)'; g.lineWidth = 0.015;
+    g.beginPath(); g.moveTo(x + r * 0.8, by); g.lineTo(x + 0.2, by - 0.42); g.stroke();
+    g.fillStyle = m.balloon; g.beginPath(); g.ellipse(x + 0.2, by - 0.5, 0.1, 0.12, 0, 0, 7); g.fill();
+    g.fillStyle = 'rgba(255,255,255,0.5)'; g.beginPath(); g.arc(x + 0.17, by - 0.54, 0.03, 0, 7); g.fill();
+  }
 }
 
 function render(time, rdt) {
   if (bgDirty) drawBG();
+  const k = cam.z * DPR;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(bg, 0, 0);
-  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.fillStyle = '#2f5a2a';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.setTransform(k, 0, 0, k, -cam.x * k, -cam.y * k);
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(bg, 0, 0, COLS, ROWS);
+  const vx0 = Math.floor(cam.x) - 1, vy0 = Math.floor(cam.y) - 1, vx1 = cam.x + VW / cam.z + 1, vy1 = cam.y + VH / cam.z + 1;
+  const inView = (x, y, m = 0) => x >= vx0 - m && x <= vx1 + m && y >= vy0 - m && y <= vy1 + m;
 
   // litter
-  for (let i = 0; i < S.grid.length; i++) {
-    const c = S.grid[i];
+  for (let y = Math.max(0, vy0); y < Math.min(ROWS, vy1); y++) for (let x = Math.max(0, vx0); x < Math.min(COLS, vx1); x++) {
+    const c = S.grid[y * COLS + x];
     if (!c.litter) continue;
-    const x = i % COLS, y = Math.floor(i / COLS);
-    for (let k = 0; k < c.litter * 2; k++) {
-      ctx.fillStyle = k % 2 ? '#ffffff' : '#d94c3d';
-      ctx.fillRect((x + 0.15 + hash(x, y, 70 + k) * 0.7) * T, (y + 0.15 + hash(x, y, 80 + k) * 0.7) * T, Math.max(2, T * 0.08), Math.max(2, T * 0.06));
+    for (let i = 0; i < c.litter * 2; i++) {
+      ctx.fillStyle = i % 2 ? '#ffffff' : '#d94c3d';
+      ctx.fillRect(x + 0.15 + hash(x, y, 70 + i) * 0.7, y + 0.15 + hash(x, y, 80 + i) * 0.7, 0.08, 0.06);
     }
   }
   // fountain sparkle
   for (let i = 0; i < S.grid.length; i++) {
     const c = S.grid[i];
     if (c.k !== 'am' || c.a !== 'fountain') continue;
-    const x = i % COLS, y = Math.floor(i / COLS);
-    for (let k = 0; k < 3; k++) {
-      const a = time * 2 + k * 2.1;
-      ctx.fillStyle = 'rgba(190,235,255,0.85)';
-      ctx.beginPath(); ctx.arc((x + 0.5 + Math.cos(a) * 0.32) * T, (y + 0.5 + Math.sin(a) * 0.32) * T, Math.max(1, T * 0.04), 0, 7); ctx.fill();
-    }
+    const x = i % COLS, y = (i / COLS) | 0;
+    if (!inView(x, y)) continue;
+    for (let j = 0; j < 3; j++) { const a = time * 2 + j * 2.1; dot(ctx, x + 0.5 + Math.cos(a) * 0.32, y + 0.5 + Math.sin(a) * 0.32, 0.04, 'rgba(190,235,255,0.85)'); }
   }
 
-  // animals
+  // exhibits: dung, animals, alerts
   for (const ex of S.ex) {
+    if (!inView(ex.x, ex.y, 8)) continue;
     const sp = SP[ex.sp];
+    const dung = Math.floor(ex.dirt / 12);
+    for (let i = 0; i < dung; i++) {
+      const dx = ex.x + 0.4 + hash(ex.id, i, 90) * (ex.w - 0.8), dy = ex.y + 0.5 + hash(ex.id, i, 91) * (ex.h - 0.9);
+      dot(ctx, dx, dy, 0.06, '#6b4a2b'); dot(ctx, dx + 0.06, dy + 0.02, 0.045, '#5a3c22');
+    }
     const list = animsFor(ex).map((p, i) => ({ p, a: ex.animals[i] })).sort((m, n) => m.p.y - n.p.y);
     for (const { p, a } of list) {
-      const size = T * sp.size * (a.baby ? 0.6 : 1);
-      const cx = (ex.x + p.x) * T, cy = (ex.y + p.y) * T;
-      const bob = p.moving ? Math.abs(Math.sin(time * 9 + p.x * 3)) * T * 0.05 : 0;
+      const size = sp.size * (a.baby ? 0.6 : 1);
+      const cx = ex.x + p.x, cy = ex.y + p.y;
+      let bob = p.moving ? Math.abs(Math.sin(time * (sp.id === 'rabbit' || sp.id === 'kangaroo' ? 12 : 8) + p.x * 3)) * (sp.id === 'kangaroo' ? 0.12 : 0.05) : 0;
+      if (!p.moving && p.mode === 'eat') bob = -Math.abs(Math.sin(time * 4 + p.y)) * 0.04;
       ctx.fillStyle = 'rgba(0,0,0,0.16)';
       ctx.beginPath(); ctx.ellipse(cx, cy + size * 0.38, size * 0.34, size * 0.12, 0, 0, 7); ctx.fill();
-      drawSprite(ctx, sp.e, cx, cy - bob, size, p.flip);
+      if (p.sleep) ctx.globalAlpha = 0.88;
+      drawSprite(ctx, sp.e, cx, cy - bob, size, k, p.flip);
+      ctx.globalAlpha = 1;
+      if (p.sleep && Math.sin(time * 1.5 + p.x * 5) > 0.2) drawSprite(ctx, '💤', cx + size * 0.35, cy - size * 0.5 - (time % 2) * 0.05, 0.28, k);
     }
-    if (ex.food < 25 && ex.animals.length) {
-      const pulse = 0.6 + 0.4 * Math.sin(time * 5);
+    const pulse = 0.55 + 0.45 * Math.sin(time * 5);
+    const ax = ex.x + ex.w - 0.4, ay = ex.y + 0.35;
+    if (ex.animals.length && (ex.health < 45 || ex.food < 25 || ex.dirt > 70)) {
       ctx.globalAlpha = pulse;
-      drawSprite(ctx, '🍖', (ex.x + 2.65) * T, (ex.y + 0.35) * T, T * 0.42);
+      drawSprite(ctx, ex.health < 45 ? '🤒' : ex.food < 25 ? '🍖' : '💩', ax, ay, 0.42, k);
       ctx.globalAlpha = 1;
     }
   }
@@ -1252,154 +1690,243 @@ function render(time, rdt) {
   if (sel && sel.type === 'ex') {
     const ex = getEx(sel.id);
     if (ex) {
-      ctx.strokeStyle = '#f4b63f'; ctx.lineWidth = Math.max(2, T * 0.08); ctx.setLineDash([T * 0.25, T * 0.15]);
-      ctx.lineDashOffset = -time * T * 0.6;
-      rr(ctx, ex.x * T + 1, ex.y * T + 1, 3 * T - 2, 3 * T - 2, T * 0.3); ctx.stroke();
-      ctx.setLineDash([]);
+      ctx.strokeStyle = '#f4b63f'; ctx.lineWidth = Math.max(0.06, 2.5 / cam.z); ctx.setLineDash([0.25, 0.15]); ctx.lineDashOffset = -time * 0.6;
+      rr(ctx, ex.x + 0.03, ex.y + 0.03, ex.w - 0.06, ex.h - 0.06, 0.3); ctx.stroke(); ctx.setLineDash([]);
     }
   } else if (sel && sel.type === 'fac') {
-    ctx.strokeStyle = '#f4b63f'; ctx.lineWidth = Math.max(2, T * 0.07);
-    ctx.beginPath(); ctx.arc((sel.x + 0.5) * T, (sel.y + 0.5) * T, T * 0.5, 0, 7); ctx.stroke();
+    ctx.strokeStyle = '#f4b63f'; ctx.lineWidth = Math.max(0.06, 2.5 / cam.z);
+    ctx.beginPath(); ctx.arc(sel.x + 0.5, sel.y + 0.5, 0.5, 0, 7); ctx.stroke();
   }
 
-  // visitors
-  const vs = [...visitors].sort((a, b) => a.y - b.y);
-  for (const v of vs) {
-    const px = (v.x + 0.5 + v.ox) * T;
-    let py = (v.y + 0.5 + v.oy) * T;
-    if (v.moving && v.wait <= 0) py -= Math.abs(Math.sin(time * 11 + v.id)) * T * 0.04;
-    ctx.fillStyle = 'rgba(0,0,0,0.2)';
-    ctx.beginPath(); ctx.ellipse(px, (v.y + 0.5 + v.oy) * T + T * 0.14, T * 0.12, T * 0.05, 0, 0, 7); ctx.fill();
-    if (v.balloon) {
-      ctx.strokeStyle = 'rgba(40,40,40,0.6)'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(px + T * 0.1, py - T * 0.02); ctx.lineTo(px + T * 0.2, py - T * 0.42); ctx.stroke();
-      ctx.fillStyle = v.balloon;
-      ctx.beginPath(); ctx.ellipse(px + T * 0.2, py - T * 0.5, T * 0.1, T * 0.12, 0, 0, 7); ctx.fill();
-    }
-    ctx.fillStyle = v.shirt;
-    ctx.beginPath(); ctx.arc(px, py, T * 0.13, 0, 7); ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 1; ctx.stroke();
-    ctx.fillStyle = v.skin;
-    ctx.beginPath(); ctx.arc(px, py - T * 0.14, T * 0.085, 0, 7); ctx.fill();
-    if (sel && sel.type === 'vis' && sel.v === v) {
-      ctx.strokeStyle = '#f4b63f'; ctx.lineWidth = Math.max(2, T * 0.06);
-      ctx.beginPath(); ctx.arc(px, py - T * 0.05, T * 0.3, 0, 7); ctx.stroke();
+  // people
+  const people = [];
+  for (const p of parties) if (inView(p.x, p.y, 1)) people.push({ y: p.y, p });
+  for (const s of staff) if (inView(s.x, s.y, 1)) people.push({ y: s.y, s });
+  people.sort((a, b) => a.y - b.y);
+  const raining = S.weather.kind === 'rain' && isOpen();
+  for (const o of people) {
+    if (o.p) {
+      const p = o.p;
+      const cx = p.x + 0.5, cy = p.y + 0.5;
+      const ms = [...p.members].sort((a, b) => a.oy - b.oy);
+      for (const m of ms) drawPerson(ctx, cx + m.ox, cy + m.oy, m, time, p.moving && p.wait <= 0, cam.z);
+      if (raining) for (const m of ms) if (m.umb) {
+        const ux = cx + m.ox, uy = cy + m.oy - 0.28;
+        ctx.fillStyle = m.umb; ctx.beginPath(); ctx.arc(ux, uy, 0.2, Math.PI, 0); ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 0.015; ctx.stroke();
+      }
+      if (sel && sel.type === 'party' && sel.p === p) {
+        ctx.strokeStyle = '#f4b63f'; ctx.lineWidth = Math.max(0.05, 2 / cam.z);
+        ctx.beginPath(); ctx.arc(cx, cy - 0.05, 0.42, 0, 7); ctx.stroke();
+      }
+    } else {
+      const s = o.s, st = STAFF[s.role];
+      const cx = s.x + 0.5, cy = s.y + 0.5;
+      drawPerson(ctx, cx, cy, { kid: false, shirt: st.shirt, skin: '#e0a77f', hair: st.hat, ph: s.id, balloon: null }, time, s.moving && s.wait <= 0, cam.z);
+      ctx.fillStyle = st.hat; ctx.beginPath(); ctx.ellipse(cx, cy - 0.2, 0.11, 0.045, 0, 0, 7); ctx.fill();
+      if (s.role === 'vet') { ctx.fillStyle = '#d33b3b'; ctx.fillRect(cx - 0.02, cy - 0.06, 0.04, 0.12); ctx.fillRect(cx - 0.06, cy - 0.02, 0.12, 0.04); }
+      if (s.role === 'janitor') { ctx.strokeStyle = '#8a5a32'; ctx.lineWidth = 0.025; ctx.beginPath(); ctx.moveTo(cx + 0.1, cy - 0.12); ctx.lineTo(cx + 0.22, cy + 0.18); ctx.stroke(); }
+      if (s.working) drawSprite(ctx, st.e, cx + 0.22, cy - 0.38, 0.28, k);
+      if (sel && sel.type === 'staff' && sel.s === s) {
+        ctx.strokeStyle = '#f4b63f'; ctx.lineWidth = Math.max(0.05, 2 / cam.z);
+        ctx.beginPath(); ctx.arc(cx, cy - 0.05, 0.32, 0, 7); ctx.stroke();
+      }
     }
   }
 
-  // ghost
+  // build ghost
+  let ghostLabel = null;
   if (hover && tool !== 'inspect') {
     if (tool === 'bulldoze') {
       const c = cell(hover.x, hover.y);
       let x = hover.x, y = hover.y, w = 1, h = 1;
-      if (c && c.k === 'ex') { const ex = getEx(c.id); if (ex) { x = ex.x; y = ex.y; w = h = 3; } }
-      ctx.fillStyle = 'rgba(201,71,59,0.3)'; ctx.strokeStyle = '#c9473b'; ctx.lineWidth = 2;
-      rr(ctx, x * T + 1, y * T + 1, w * T - 2, h * T - 2, T * 0.15); ctx.fill(); ctx.stroke();
+      if (c && c.k === 'ex') { const ex = getEx(c.id); if (ex) { x = ex.x; y = ex.y; w = ex.w; h = ex.h; } }
+      ctx.fillStyle = 'rgba(201,71,59,0.3)'; ctx.strokeStyle = '#c9473b'; ctx.lineWidth = Math.max(0.04, 2 / cam.z);
+      rr(ctx, x + 0.03, y + 0.03, w - 0.06, h - 0.06, 0.15); ctx.fill(); ctx.stroke();
     } else {
-      const chk = canPlace(tool, hover.x, hover.y);
-      const okay = chk.ok && S.money >= toolCost(tool) && S.rating + 1e-6 >= toolStar(tool);
-      let x = hover.x, y = hover.y, w = 1;
-      if (tool.startsWith('ex:')) { x = hover.x - 1; y = hover.y - 1; w = 3; }
-      ctx.fillStyle = okay ? 'rgba(255,250,240,0.4)' : 'rgba(201,71,59,0.35)';
-      ctx.strokeStyle = okay ? '#fffaf0' : '#c9473b'; ctx.lineWidth = 2;
-      rr(ctx, x * T + 1, y * T + 1, w * T - 2, w * T - 2, T * 0.2); ctx.fill(); ctx.stroke();
-      const e = tool.startsWith('ex:') ? SP[tool.slice(3)].e : tool.startsWith('fac:') ? FAC[tool.slice(4)].e : null;
-      if (e) { ctx.globalAlpha = 0.85; drawSprite(ctx, e, (x + w / 2) * T, (y + w / 2) * T, T * (w === 3 ? 0.9 : 0.55)); ctx.globalAlpha = 1; }
+      const chk = checkPlace(tool, hover.x, hover.y);
+      const fp = chk.fp;
+      const okay = chk.ok && S.money >= chk.cost && S.rating + 1e-6 >= toolStar(tool);
+      ctx.fillStyle = okay ? 'rgba(255,250,240,0.42)' : 'rgba(201,71,59,0.35)';
+      ctx.strokeStyle = okay ? '#fffaf0' : '#c9473b'; ctx.lineWidth = Math.max(0.04, 2 / cam.z);
+      rr(ctx, fp.x + 0.03, fp.y + 0.03, fp.w - 0.06, fp.h - 0.06, 0.2); ctx.fill(); ctx.stroke();
+      const sp = toolSpecies(tool), f = toolFac(tool);
+      if (sp) {
+        ctx.globalAlpha = 0.85; drawSprite(ctx, sp.e, fp.x + fp.w / 2, fp.y + fp.h / 2, Math.min(1.6, fp.w * 0.3), k); ctx.globalAlpha = 1;
+        ghostLabel = { x: fp.x + fp.w / 2, y: fp.y, text: chk.ok ? `${fp.w}×${fp.h} · room for ${capacity(sp, fp.w, fp.h)} · ${fmt(chk.cost)}` : chk.reason, ok: okay };
+      } else if (f) {
+        ctx.globalAlpha = 0.85; drawSprite(ctx, f.e, fp.x + 0.5, fp.y + 0.5, 0.55, k); ctx.globalAlpha = 1;
+        if (chk.ok && chk.clear) ghostLabel = { x: fp.x + 0.5, y: fp.y, text: `${fmt(chk.cost)} incl. clearing`, ok: okay };
+      }
     }
   }
 
-  // golden hour tint
-  const k = S.t / DAY;
-  if (k > 0.75) {
-    ctx.fillStyle = `rgba(255,140,60,${(k - 0.75) * 0.5})`;
-    ctx.fillRect(0, 0, COLS * T, ROWS * T);
+  // screen-space overlays
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  const tod = S.t / OPEN;
+  if (tod > 0.7 && tod < 1) { ctx.fillStyle = `rgba(255,140,60,${(tod - 0.7) * 0.35})`; ctx.fillRect(0, 0, VW, VH); }
+  if (S.weather.kind === 'rain' || S.weather.kind === 'cloudy') { ctx.fillStyle = S.weather.kind === 'rain' ? 'rgba(40,60,90,0.16)' : 'rgba(80,90,110,0.07)'; ctx.fillRect(0, 0, VW, VH); }
+  if (S.weather.kind === 'heat' && isOpen()) { ctx.fillStyle = 'rgba(255,200,80,0.07)'; ctx.fillRect(0, 0, VW, VH); }
+  const dk = darkness();
+  if (dk > 0.01) {
+    const sg = shade.getContext('2d');
+    sg.setTransform(1, 0, 0, 1, 0, 0);
+    sg.globalCompositeOperation = 'source-over';
+    sg.clearRect(0, 0, shade.width, shade.height);
+    sg.fillStyle = `rgba(12,20,48,${dk})`;
+    sg.fillRect(0, 0, shade.width, shade.height);
+    sg.globalCompositeOperation = 'destination-out';
+    for (let i = 0; i < S.grid.length; i++) {
+      const c = S.grid[i];
+      if (c.k !== 'am' || !FAC[c.a].light) continue;
+      const x = i % COLS, y = (i / COLS) | 0;
+      if (!inView(x, y, 4)) continue;
+      const sx = ((x + 0.5 - cam.x) * cam.z) * DPR, sy = ((y + 0.3 - cam.y) * cam.z) * DPR, rad = FAC[c.a].light * cam.z * DPR;
+      const gr = sg.createRadialGradient(sx, sy, 0, sx, sy, rad);
+      gr.addColorStop(0, 'rgba(0,0,0,0.95)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+      sg.fillStyle = gr; sg.beginPath(); sg.arc(sx, sy, rad, 0, 7); sg.fill();
+    }
+    sg.globalCompositeOperation = 'source-over';
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(shade, 0, 0);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    // warm glow on lamps
+    for (let i = 0; i < S.grid.length; i++) {
+      const c = S.grid[i];
+      if (c.k !== 'am' || c.a !== 'lamp') continue;
+      const x = i % COLS, y = (i / COLS) | 0;
+      if (!inView(x, y, 2)) continue;
+      const sx = (x + 0.5 - cam.x) * cam.z, sy = (y + 0.16 - cam.y) * cam.z;
+      const gr = ctx.createRadialGradient(sx, sy, 0, sx, sy, cam.z * 0.9);
+      gr.addColorStop(0, `rgba(255,220,140,${dk * 0.9})`); gr.addColorStop(1, 'rgba(255,220,140,0)');
+      ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(sx, sy, cam.z * 0.9, 0, 7); ctx.fill();
+    }
+  }
+  if (S.weather.kind === 'rain' && (isOpen() || S.t < OPEN + NIGHT * 0.3)) {
+    ctx.strokeStyle = 'rgba(200,220,255,0.45)'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (const d of rain) {
+      d.y += rdt * 1.4 * d.s; d.x -= rdt * 0.15 * d.s;
+      if (d.y > 1) { d.y -= 1; d.x = Math.random(); }
+      if (d.x < 0) d.x += 1;
+      const x = d.x * VW, y = d.y * VH;
+      ctx.moveTo(x, y); ctx.lineTo(x - 3, y + 11 * d.s);
+    }
+    ctx.stroke();
   }
 
-  // floats
+  // floating text and ghost label
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.font = `800 ${Math.max(10, T * 0.4)}px Figtree, system-ui, sans-serif`;
+  ctx.font = `800 ${Math.max(11, Math.min(18, cam.z * 0.36))}px Figtree, system-ui, sans-serif`;
+  ctx.lineJoin = 'round';
   for (let i = floats.length - 1; i >= 0; i--) {
     const f = floats[i];
     f.t += rdt;
-    if (f.t > 1.3) { floats.splice(i, 1); continue; }
-    const a = 1 - f.t / 1.3;
-    const fx = f.x * T, fy = (f.y - f.t * 0.7) * T;
-    ctx.globalAlpha = a;
-    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(29,58,41,0.85)';
-    ctx.strokeText(f.text, fx, fy);
-    ctx.fillStyle = f.color; ctx.fillText(f.text, fx, fy);
+    if (f.t > 1.4) { floats.splice(i, 1); continue; }
+    const sx = (f.x - cam.x) * cam.z, sy = (f.y - f.t * 0.7 - cam.y) * cam.z;
+    if (sx < -50 || sy < -50 || sx > VW + 50 || sy > VH + 50) continue;
+    ctx.globalAlpha = 1 - f.t / 1.4;
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(29,58,41,0.85)'; ctx.strokeText(f.text, sx, sy);
+    ctx.fillStyle = f.color; ctx.fillText(f.text, sx, sy);
   }
   ctx.globalAlpha = 1;
+  if (ghostLabel) {
+    ctx.font = '700 12px Figtree, system-ui, sans-serif';
+    const sx = (ghostLabel.x - cam.x) * cam.z, sy = (ghostLabel.y - cam.y) * cam.z - 14;
+    const w = ctx.measureText(ghostLabel.text).width + 16;
+    const bx = clamp(sx - w / 2, 4, VW - w - 4), by = Math.max(4, sy - 12);
+    ctx.fillStyle = ghostLabel.ok ? 'rgba(255,250,240,0.95)' : 'rgba(255,225,220,0.95)';
+    rr(ctx, bx, by, w, 24, 12); ctx.fill();
+    ctx.fillStyle = ghostLabel.ok ? '#1c2a21' : '#7a1f16';
+    ctx.fillText(ghostLabel.text, bx + w / 2, by + 12.5);
+  }
 }
 
 /* =========================================================
    UI
 ========================================================= */
 const toastEl = $('#toast');
-let toastTimer = 0;
+const toastQ = [];
+let toastBusy = false;
 function toast(msg, kind = '') {
-  toastEl.textContent = msg;
-  toastEl.className = 'toast show ' + kind;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { toastEl.className = 'toast ' + kind; }, 2600);
+  if (toastQ.length > 3) toastQ.shift();
+  toastQ.push({ msg, kind });
+  if (!toastBusy) nextToast();
+}
+function nextToast() {
+  const t = toastQ.shift();
+  if (!t) { toastBusy = false; return; }
+  toastBusy = true;
+  toastEl.textContent = t.msg;
+  toastEl.className = 'toast show ' + t.kind;
+  setTimeout(() => { toastEl.className = 'toast ' + t.kind; setTimeout(nextToast, 220); }, toastQ.length ? 1700 : 2600);
 }
 
 function setTool(t) {
   tool = t;
   document.querySelectorAll('[data-tool]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tool === t)));
-  canvas.classList.toggle('drawing', t === 'path' || t === 'bulldoze' || t === 'fac:tree' || t === 'fac:flowers');
+  canvas.classList.toggle('build', t !== 'inspect');
+  const sp = toolSpecies(t);
+  if (sp) penSize = Math.max(sp.min, Math.min(penSize, 7));
+  renderSizes();
   updateHint();
 }
 function updateHint() {
   let h = '';
-  if (tool === 'inspect') h = 'Tap an exhibit, stand or visitor on the map to see how they’re doing.';
-  else if (tool === 'path') h = 'Tap or drag across grass to lay path. $10 a tile. Visitors only walk on paths.';
-  else if (tool === 'bulldoze') h = 'Tap or drag to remove paths and buildings. You get half the cost back. Exhibits need a second tap.';
-  else if (tool.startsWith('ex:')) { const sp = SP[tool.slice(3)]; h = `Tap grass to build a 3×3 ${HAB[sp.hab].name.toLowerCase()} exhibit with one ${sp.one} (${fmt(PEN)} pen + ${fmt(sp.cost)}). Put it beside a path.`; }
-  else if (tool.startsWith('fac:')) { const f = FAC[tool.slice(4)]; h = `${f.tip} Costs ${fmt(f.cost)}${f.up ? `, plus ${fmt(f.up)} a day upkeep` : ''}.`; }
+  const sp = toolSpecies(tool), f = toolFac(tool);
+  if (tool === 'inspect') h = 'Tap an exhibit, stand, guest or staff member to see how they’re doing. Drag to move around the zoo.';
+  else if (tool === 'path') h = 'Tap or drag across grass to lay path at $10 a tile. Guests only walk on paths. Two fingers move the map.';
+  else if (tool === 'bulldoze') h = 'Tap or drag to remove things. Buildings refund half. Clearing wild trees and rocks costs $15. Exhibits need a second tap.';
+  else if (sp) h = `${sp.name} need a ${HAB[sp.hab].name.toLowerCase()} pen at least ${sp.min}×${sp.min}, with ${sp.space} tiles per animal. ${sp.social === 'herd' ? 'They live in groups.' : sp.social === 'pair' ? 'They do best in pairs.' : 'They prefer living alone.'} Tap the map, or drag to position, then let go.`;
+  else if (f) h = `${f.tip} ${fmt(f.cost)}${f.up ? `, plus ${fmt(f.up)} a day upkeep` : ''}.${f.paint ? ' Drag to plant several.' : ''}`;
   $('#hint').textContent = h;
+  $('#maphint').textContent = tool === 'inspect' ? 'Drag to look around. Scroll or pinch to zoom.' : tool === 'path' || tool === 'bulldoze' || f?.paint ? 'Drag to paint. Two fingers or right-drag to move the map.' : 'Tap to place, or drag the outline into position and let go.';
 }
-
+function renderSizes() {
+  const box = $('#sizes');
+  const sp = toolSpecies(tool);
+  if (!sp) { box.hidden = true; box.innerHTML = ''; return; }
+  box.hidden = false;
+  box.innerHTML = `<span class="lbl">Pen size</span>` + SIZES.map(s => {
+    const dis = s < sp.min;
+    return `<button class="size" data-size="${s}" aria-pressed="${s === penSize}" ${dis ? 'disabled' : ''}>${s}×${s}<small>${dis ? 'too small' : `room for ${capacity(sp, s, s)} · ${fmt(penCost(s) + sp.cost)}`}</small></button>`;
+  }).join('');
+}
 function renderItems() {
   const box = $('#items');
   box.innerHTML = TABS[tab].map(t => {
-    let e, name;
-    if (t.startsWith('ex:')) { const sp = SP[t.slice(3)]; e = sp.e; name = sp.name; }
-    else { const f = FAC[t.slice(4)]; e = f.e; name = f.name; }
-    return `<button class="item" data-tool="${t}" aria-pressed="${tool === t}"><span class="ie">${e}</span><span class="in">${name}</span><span class="ip"></span></button>`;
+    const sp = toolSpecies(t), f = toolFac(t);
+    return `<button class="item" data-tool="${t}" aria-pressed="${tool === t}"><span class="ie">${sp ? sp.e : f.e}</span><span class="in">${sp ? sp.name : f.name}</span><span class="ip"></span></button>`;
   }).join('');
   refreshItems();
 }
-let lastLockKey = '';
 function refreshItems() {
   document.querySelectorAll('#items .item').forEach(b => {
-    const t = b.dataset.tool, star = toolStar(t), cost = toolCost(t);
+    const t = b.dataset.tool, star = toolStar(t);
+    const sp = toolSpecies(t);
+    const cost = sp ? penCost(sp.min) + sp.cost : baseCost(t);
     const locked = S.rating + 1e-6 < star;
     b.disabled = locked;
     b.classList.toggle('cant', !locked && S.money < cost);
-    b.querySelector('.ip').textContent = locked ? `★ ${star} needed` : fmt(cost);
+    b.querySelector('.ip').textContent = locked ? `★ ${star} needed` : (sp ? 'from ' : '') + fmt(cost);
     b.title = locked ? `Unlocks at a ${star}-star rating` : '';
   });
   if (tool !== 'inspect' && tool !== 'path' && tool !== 'bulldoze' && S.rating + 1e-6 < toolStar(tool)) setTool('inspect');
 }
 
-function select(s) {
-  sel = s;
-  renderInspector();
-}
+function select(s) { sel = s; renderInspector(); }
 const DEFAULT_HELP = `
   <h2>Zoo guide</h2>
-  <p class="muted">Tap an exhibit, stand or visitor on the map to see how they’re doing.</p>
+  <p class="muted">Tap anything on the map to see how it’s doing. Drag to look around, and pinch or scroll to zoom.</p>
   <ul class="tips">
-    <li>Visitors only see exhibits that sit right beside a path.</li>
-    <li>Two or more well-fed, happy animals may have a baby overnight.</li>
-    <li>Trees and flowers around an exhibit make its animals happier.</li>
-    <li>Your rating unlocks bigger animals. Variety counts the most.</li>
+    <li>Guests only see exhibits that sit right beside a path.</li>
+    <li>Bigger pens hold more animals. Herd animals want company and big cats and bears prefer to live alone.</li>
+    <li>Animals need feeding and their pens need mucking out. Zookeepers do both.</li>
+    <li>Dirty, hungry animals get sick. A vet keeps them healthy.</li>
+    <li>The gates close at 6 pm. Lamp posts light the way for guests heading home.</li>
   </ul>`;
 
-function bar(label, f) {
-  return `<div class="meter"><span>${label}</span><div class="bar"><i data-f="${f}"></i></div><b data-f="${f}v"></b></div>`;
-}
+function bar(label, f) { return `<div class="meter"><span>${label}</span><div class="bar"><i data-f="${f}"></i></div><b data-f="${f}v"></b></div>`; }
 function renderInspector() {
   const el = $('#inspector');
   if (!sel) { el.innerHTML = DEFAULT_HELP; return; }
@@ -1408,53 +1935,63 @@ function renderInspector() {
     if (!ex) { sel = null; el.innerHTML = DEFAULT_HELP; return; }
     const sp = SP[ex.sp];
     el.innerHTML = `
-      <div class="insp-head"><span class="insp-emoji">${sp.e}</span><div><h3>${sp.name}</h3><span class="chip">${HAB[sp.hab].name}</span></div></div>
+      <div class="insp-head"><span class="insp-emoji">${sp.e}</span><div><h3>${sp.name}</h3><span class="chip">${HAB[sp.hab].name} · ${ex.w}×${ex.h}</span> <span class="chip sick" data-f="sick" hidden>Sick</span></div></div>
       <div class="herd" data-f="herd"></div>
       ${bar('Food', 'food')}
+      ${bar('Clean pen', 'clean')}
+      ${bar('Health', 'health')}
       ${bar('Happiness', 'hap')}
       <p class="warn" data-f="warn"></p>
       <p class="note" data-f="note"></p>
       <div class="actions">
         <button class="btn" data-act="feed">Feed · <span data-f="feedcost"></span></button>
+        <button class="btn alt" data-act="clean">Muck out · $20</button>
+        <button class="btn alt" data-act="vet">Call vet · $250</button>
         <button class="btn alt" data-act="add">Add ${sp.one} · ${fmt(sp.cost)}</button>
-        <button class="btn alt" data-act="sell">Sell one · +<span data-f="sellv">${fmt(sp.cost / 2)}</span></button>
+        <button class="btn alt" data-act="sell">Rehome one · +${fmt(sp.cost / 2)}</button>
         <button class="btn danger" data-act="demolish">Demolish</button>
-      </div>`;
-  } else if (sel.type === 'vis') {
-    const v = sel.v;
+      </div>
+      <p class="fact">${sp.fact}</p>`;
+  } else if (sel.type === 'party') {
+    const p = sel.p;
+    const who = [p.adults ? `${p.adults} adult${p.adults > 1 ? 's' : ''}` : '', p.kids ? `${p.kids} kid${p.kids > 1 ? 's' : ''}` : ''].filter(Boolean).join(' · ');
     el.innerHTML = `
-      <div class="insp-head"><span class="insp-emoji" data-f="face"></span><div><h3>${v.name}</h3><span class="chip" data-f="mood"></span></div></div>
+      <div class="insp-head"><span class="insp-emoji" data-f="face"></span><div><h3>${p.name}</h3><span class="chip">${who}</span> <span class="chip" data-f="mood"></span></div></div>
       <p class="thought" data-f="thought"></p>
       ${bar('Mood', 'vhap')}
       ${bar('Hunger', 'vhun')}
       ${bar('Thirst', 'vthi')}
       ${bar('Restroom', 'vbla')}
+      ${bar('Energy', 'ven')}
       <p class="note" data-f="vnote"></p>`;
+  } else if (sel.type === 'staff') {
+    const s = sel.s, st = STAFF[s.role];
+    el.innerHTML = `
+      <div class="insp-head"><span class="insp-emoji">${st.e}</span><div><h3>${s.name}</h3><span class="chip">${st.name} · ${fmt(st.wage)} a day</span></div></div>
+      <p data-f="job"></p>
+      <p class="note" data-f="done"></p>`;
   } else if (sel.type === 'gone') {
-    el.innerHTML = `<h2>${sel.name} went home</h2><p class="muted">They left feeling ${moodWord(sel.hap).toLowerCase()} ${moodFace(sel.hap)}. Tap another visitor to follow them.</p>`;
+    el.innerHTML = `<h2>${sel.name} went home</h2><p class="muted">They left feeling ${moodWord(sel.hap).toLowerCase()} ${moodFace(sel.hap)}. Tap another guest to follow them.</p>`;
   } else if (sel.type === 'fac') {
     const c = cell(sel.x, sel.y);
     if (!c || c.k !== 'am') { sel = null; el.innerHTML = DEFAULT_HELP; return; }
     const f = FAC[c.a];
     const sells = ['snack', 'drink', 'gift'].includes(c.a);
+    const natural = c.wild || f.natural;
     el.innerHTML = `
-      <div class="insp-head"><span class="insp-emoji">${f.e}</span><div><h3>${f.name}</h3><span class="chip">${f.up ? fmt(f.up) + ' a day' : 'No upkeep'}</span></div></div>
-      <p class="muted">${f.tip}</p>
+      <div class="insp-head"><span class="insp-emoji">${f.e}</span><div><h3>${natural && c.a === 'tree' ? 'Wild tree' : f.name}</h3><span class="chip">${f.up ? fmt(f.up) + ' a day' : 'No upkeep'}</span></div></div>
+      <p class="muted">${natural ? 'Part of the original woodland. Clearing it costs $15.' : f.tip}</p>
       ${sells ? `<p><b data-f="earned"></b> taken so far.</p>` : c.a === 'toilet' ? `<p><b data-f="earned"></b> visits so far.</p>` : ''}
-      <div class="actions"><button class="btn danger" data-act="remove">Remove · +${fmt(f.cost / 2)}</button></div>`;
+      <div class="actions"><button class="btn danger" data-act="remove">${natural ? 'Clear · $15' : 'Remove · +' + fmt(f.cost / 2)}</button></div>`;
   } else if (sel.type === 'gate') {
-    el.innerHTML = `<h2>Main entrance</h2><p class="muted">Every visitor pays the ticket price here. Visitors arrive faster when you have more exhibits, happier animals and a better rating.</p><p><b data-f="rate"></b></p>`;
+    el.innerHTML = `<h2>Main entrance</h2><p class="muted">Every guest buys a ticket here. Kids pay half price. More exhibits, happier animals and a better rating bring bigger crowds, and rain keeps people at home.</p><p><b data-f="rate"></b></p>`;
   }
   updateInspector();
 }
-function setBar(el, f, val, text) {
+function setBar(el, f, val, invert) {
   const i = el.querySelector(`[data-f="${f}"]`), b = el.querySelector(`[data-f="${f}v"]`);
-  if (i) { i.style.width = clamp(val) + '%'; i.className = val >= 55 ? '' : val >= 30 ? 'mid' : 'low'; }
-  if (b) b.textContent = text ?? Math.round(val) + '%';
-}
-function setBarInv(el, f, val) { // high is bad
-  const i = el.querySelector(`[data-f="${f}"]`), b = el.querySelector(`[data-f="${f}v"]`);
-  if (i) { i.style.width = clamp(val) + '%'; i.className = val < 50 ? '' : val < 80 ? 'mid' : 'low'; }
+  const good = invert ? 100 - val : val;
+  if (i) { i.style.width = clamp(val) + '%'; i.className = good >= 55 ? '' : good >= 30 ? 'mid' : 'low'; }
   if (b) b.textContent = Math.round(val) + '%';
 }
 function updateInspector() {
@@ -1465,86 +2002,109 @@ function updateInspector() {
     const ex = getEx(sel.id);
     if (!ex) { select(null); return; }
     const sp = SP[ex.sp];
-    const herd = ex.animals.map(a => a.baby ? `<span class="baby" title="Baby">${sp.e}</span>` : sp.e).join('');
+    const cap = capacity(sp, ex.w, ex.h);
+    const sick = ex.health < 45;
+    const herd = ex.animals.map(a => `<span class="${a.baby ? 'baby' : ''} ${sick ? 'ill' : ''}" title="${a.baby ? 'Baby' : 'Adult'}">${sp.e}</span>`).join('');
     const h = q('herd'); if (h && h.dataset.v !== herd) { h.innerHTML = herd || '<span class="muted" style="font-size:13px">Empty</span>'; h.dataset.v = herd; }
-    setBar(el, 'food', ex.food);
-    setBar(el, 'hap', ex.hap);
-    const warn = !exAccess(ex) ? 'No path beside this exhibit, so visitors can’t see it.' : ex.food < 25 ? 'The animals are hungry. Feed them soon.' : ex.animals.length === 1 ? `This ${sp.one} is lonely. A second one would cheer it up.` : '';
+    q('sick').hidden = !sick;
+    setBar(el, 'food', ex.food); setBar(el, 'clean', 100 - ex.dirt); setBar(el, 'health', ex.health); setBar(el, 'hap', ex.hap);
+    const n = ex.animals.length;
+    const warn = !exAccess(ex) ? 'No path beside this exhibit, so guests can’t see it.'
+      : sick ? 'An animal is sick. Call the vet and keep the pen clean.'
+      : ex.food < 25 ? 'The animals are hungry. Feed them soon.'
+      : ex.dirt > 65 ? 'The pen is filthy. Muck it out before the animals get sick.'
+      : sp.social === 'herd' && n === 1 ? `This ${sp.one} is lonely. ${sp.name} live in groups.`
+      : sp.social === 'solo' && n >= 3 ? `${sp.name} prefer living alone. This many is stressful.` : '';
     q('warn').textContent = warn;
     const adults = ex.animals.filter(a => !a.baby).length;
-    q('note').textContent = `${ex.animals.length} of ${CAP} animals. ` + (keeperCovered(ex) ? 'A zookeeper feeds them automatically.' : S.keepers ? 'Your keepers are busy. Hire another to cover this exhibit.' : 'Feed them yourself or hire a zookeeper.') + (adults >= 2 && ex.animals.length < CAP ? (ex.hap >= 70 ? ' Happy enough to have a baby.' : ' A baby may arrive if they get happier.') : '');
+    const keepers = staffCount('keeper');
+    q('note').textContent = `${n} of ${cap} animals. ` + (keepers ? 'Zookeepers will come by when food runs low or the pen gets dirty.' : 'Feed and muck out yourself, or hire a zookeeper.') + (adults >= 2 && n < cap ? (ex.hap >= 70 && ex.health >= 60 ? ' Happy enough to have a baby.' : ' A baby may arrive if they get happier.') : '');
     q('feedcost').textContent = fmt(feedCost(ex));
-    const add = el.querySelector('[data-act="add"]'), sell = el.querySelector('[data-act="sell"]'), feed = el.querySelector('[data-act="feed"]');
-    add.disabled = ex.animals.length >= CAP;
-    sell.disabled = ex.animals.length <= 1;
-    feed.disabled = ex.food > 95 || !ex.animals.length;
-  } else if (sel.type === 'vis') {
-    const v = sel.v;
-    q('face').textContent = moodFace(v.hap);
-    q('mood').textContent = moodWord(v.hap);
-    q('thought').textContent = '“' + v.thought + '”';
-    setBar(el, 'vhap', v.hap);
-    setBarInv(el, 'vhun', v.hunger);
-    setBarInv(el, 'vthi', v.thirst);
-    setBarInv(el, 'vbla', v.bladder);
-    const total = S.ex.filter(exAccess).length;
-    q('vnote').textContent = `Seen ${Math.min(v.seen.size, total)} of ${total} exhibits · spent ${fmt(v.spent)}${v.leaving ? ' · heading home' : ''}`;
+    const btn = a => el.querySelector(`[data-act="${a}"]`);
+    btn('add').disabled = n >= cap;
+    btn('add').title = n >= cap ? 'The pen is full. Build a bigger one for more animals.' : '';
+    btn('sell').disabled = n <= 1;
+    btn('feed').disabled = ex.food > 95 || !n;
+    btn('clean').disabled = ex.dirt < 5;
+    btn('vet').disabled = ex.health > 85;
+  } else if (sel.type === 'party') {
+    const p = sel.p;
+    q('face').textContent = moodFace(p.hap);
+    q('mood').textContent = moodWord(p.hap);
+    q('thought').textContent = '“' + p.thought + '”';
+    setBar(el, 'vhap', p.hap); setBar(el, 'vhun', p.hunger, true); setBar(el, 'vthi', p.thirst, true); setBar(el, 'vbla', p.bladder, true); setBar(el, 'ven', p.energy);
+    const total = S.ex.filter(e => e.animals.length && exAccess(e)).length;
+    const seen = S.ex.filter(e => p.seen.has(e.id)).length;
+    const g = p.goal;
+    const heading = p.leaving ? 'heading for the exit' : !g ? 'looking around' : g.type === 'exhibit' ? 'off to see more animals' : 'heading to ' + (GOAL_LABEL[g.type] || 'somewhere');
+    q('vnote').textContent = `Seen ${seen} of ${total} exhibits · spent ${fmt(p.spent)} · ${heading}`;
+  } else if (sel.type === 'staff') {
+    const s = sel.s;
+    q('job').textContent = s.job ? (s.working ? s.job.text.replace('Heading to', 'Working at').replace('Checking on', 'Treating') : s.job.text) + '.' : 'Nothing needs doing right now, so they’re on patrol.';
+    q('done').textContent = `Jobs done since starting: ${s.done}.`;
   } else if (sel.type === 'fac') {
     const c = cell(sel.x, sel.y);
     if (!c || c.k !== 'am') { select(null); return; }
     const e = q('earned');
     if (e) e.textContent = c.a === 'toilet' ? String(c.earned || 0) : fmt(c.earned || 0);
   } else if (sel.type === 'gate') {
-    q('rate').textContent = `About ${Math.round(visitorsPerDay())} visitors a day at the current price.`;
+    q('rate').textContent = `About ${Math.round(visitorsPerDay())} guests a day at today’s prices and weather.`;
   }
 }
 
 $('#inspector').addEventListener('click', e => {
   const b = e.target.closest('[data-act]');
   if (!b || b.disabled) return;
-  const actn = b.dataset.act;
+  const a = b.dataset.act;
   if (sel && sel.type === 'ex') {
     const ex = getEx(sel.id); if (!ex) return;
     const sp = SP[ex.sp];
-    if (actn === 'feed') {
+    const mid = [ex.x + ex.w / 2, ex.y + ex.h / 2];
+    if (a === 'feed') {
       const cost = feedCost(ex);
       if (S.money < cost) return toast(`Not enough cash. Feeding costs ${fmt(cost)}.`, 'bad');
-      spend(cost, true); ex.food = 100; floatText(ex.x + 1.5, ex.y + 0.6, '🥕 fed', '#ffffff');
-    } else if (actn === 'add') {
+      spend(cost, true); ex.food = 100; floatText(mid[0], mid[1], '🥕 fed', '#ffffff');
+    } else if (a === 'clean') {
+      if (S.money < 20) return toast('Not enough cash.', 'bad');
+      spend(20, true); ex.dirt = 0; floatText(mid[0], mid[1], '🧽 clean', '#ffffff');
+    } else if (a === 'vet') {
+      if (S.money < 250) return toast('Not enough cash. A vet call-out costs $250.', 'bad');
+      spend(250, true); ex.health = 95; floatText(mid[0], mid[1], '💊 treated', '#ffffff');
+    } else if (a === 'add') {
       if (S.money < sp.cost) return toast(`Not enough cash. A ${sp.one} costs ${fmt(sp.cost)}.`, 'bad');
-      spend(sp.cost); ex.animals.push({ baby: false, age: 3 }); floatText(ex.x + 1.5, ex.y + 1, '−' + fmt(sp.cost), '#ffb3a8');
+      spend(sp.cost); ex.animals.push({ baby: false, age: 4 }); floatText(mid[0], mid[1], '−' + fmt(sp.cost), '#ffb3a8');
       toast(`A new ${sp.one} joined the exhibit.`, 'good');
-    } else if (actn === 'sell') {
-      const i = ex.animals.findIndex(a => !a.baby); const idx = i >= 0 ? i : 0;
-      ex.animals.splice(idx, 1); S.money += Math.round(sp.cost / 2);
-      floatText(ex.x + 1.5, ex.y + 1, '+' + fmt(sp.cost / 2), '#ffe08a');
-    } else if (actn === 'demolish') {
+    } else if (a === 'sell') {
+      const i = ex.animals.findIndex(x => !x.baby);
+      ex.animals.splice(i >= 0 ? i : 0, 1); S.money += Math.round(sp.cost / 2);
+      floatText(mid[0], mid[1], '+' + fmt(sp.cost / 2), '#ffe08a');
+    } else if (a === 'demolish') {
       if (!b.classList.contains('armed')) {
         b.classList.add('armed'); b.textContent = 'Tap again to demolish';
         setTimeout(() => { if (b.isConnected) { b.classList.remove('armed'); b.textContent = 'Demolish'; } }, 3000);
         return;
       }
-      demolishEx(ex);
-      return;
+      demolishEx(ex); return;
     }
     updateInspector(); refreshItems(); updateStats();
-  } else if (sel && sel.type === 'fac' && actn === 'remove') {
-    bulldoze(sel.x, sel.y, true);
-    updateStats();
+  } else if (sel && sel.type === 'fac' && a === 'remove') {
+    bulldoze(sel.x, sel.y, true); updateStats();
   }
 });
 
 document.querySelector('.kit').addEventListener('click', e => {
+  const sz = e.target.closest('[data-size]');
+  if (sz && !sz.disabled) { penSize = +sz.dataset.size; renderSizes(); return; }
   const tb = e.target.closest('[data-tab]');
   if (tb) {
     tab = tb.dataset.tab;
     document.querySelectorAll('[data-tab]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
-    renderItems();
-    return;
+    renderItems(); return;
   }
   const b = e.target.closest('[data-tool]');
   if (!b || b.disabled) return;
-  setTool(tool === b.dataset.tool && b.dataset.tool !== 'inspect' ? 'inspect' : b.dataset.tool);
+  const t = b.dataset.tool;
+  setTool(tool === t && t !== 'inspect' ? 'inspect' : t);
   if (tool !== 'inspect' && sel && sel.type !== 'ex') select(null);
 });
 
@@ -1554,20 +2114,30 @@ document.querySelector('.side').addEventListener('click', e => {
   const m = b.dataset.m;
   if (m === 'price-') S.price = Math.max(0, S.price - 1);
   if (m === 'price+') S.price = Math.min(60, S.price + 1);
-  if (m === 'keep+') { if (S.keepers < 10) { S.keepers++; addNews('You hired a zookeeper. They’ll keep the food bowls full.'); } }
-  if (m === 'keep-') S.keepers = Math.max(0, S.keepers - 1);
-  if (m === 'jan+') { if (S.janitors < 10) { S.janitors++; addNews('You hired a janitor. Litter beware.'); } }
-  if (m === 'jan-') S.janitors = Math.max(0, S.janitors - 1);
+  for (const role of Object.keys(STAFF)) {
+    if (m === role + '+' && S.staff[role] < 12) { S.staff[role]++; addNews(`You hired a ${STAFF[role].name.toLowerCase()}. They’re walking in through the gate now.`); }
+    if (m === role + '-' && S.staff[role] > 0) S.staff[role]--;
+  }
+  syncStaff();
   updateMgmt();
 });
 
 function updateMgmt() {
   $('#mPrice').textContent = fmt(S.price);
-  $('#mKeep').textContent = S.keepers;
-  $('#mJan').textContent = S.janitors;
+  for (const role of Object.keys(STAFF)) $('#m' + role[0].toUpperCase() + role.slice(1)).textContent = S.staff[role];
   const fair = fairPrice();
-  const verdict = S.price > fair * 1.4 ? 'Visitors think this is too expensive.' : S.price > fair ? 'A little steep. Fewer people will come.' : S.price < fair * 0.6 ? 'A bargain. Crowds love it, but you earn less each.' : 'Visitors think this is fair.';
-  $('#mPriceSub').textContent = `Fair price at your rating is about ${fmt(fair)}. ${verdict}`;
+  const verdict = S.price > fair * 1.4 ? 'Guests think this is far too expensive.' : S.price > fair ? 'A little steep. Fewer people will come.' : S.price < fair * 0.6 ? 'A bargain. Crowds love it, but you earn less each.' : 'Guests think this is fair.';
+  $('#mPriceSub').textContent = `Kids pay half. Fair price at your rating is about ${fmt(fair)}. ${verdict}`;
+}
+function renderReportCard() {
+  const r = ratingParts();
+  const rows = [['Animal care', r.welfare], ['Guest happiness', r.sat], ['Variety', r.variety], ['Scenery', r.scenery], ['Cleanliness', r.clean]];
+  const html = rows.map(([l, v], i) => bar(l, 'rc' + i)).join('');
+  const box = $('#reportCard');
+  if (!box.dataset.ready) { box.innerHTML = html; box.dataset.ready = '1'; }
+  rows.forEach(([l, v], i) => setBar(box, 'rc' + i, v * 100));
+  const c = dayCosts();
+  $('#arrivals').textContent = `Expect about ${Math.round(visitorsPerDay())} guests today. Daily running costs: ${fmt(c.total)} (pens ${fmt(c.exUp)}, facilities ${fmt(c.facUp)}, wages ${fmt(c.wages)}).`;
 }
 
 $('#sp0').onclick = () => setSpeed(0);
@@ -1580,7 +2150,10 @@ function setSpeed(s) {
 }
 
 function clockText() {
-  const mins = 9 * 60 + (S.t / DAY) * 9 * 60;
+  let mins;
+  if (S.t < OPEN) mins = 9 * 60 + (S.t / OPEN) * 9 * 60;
+  else mins = 18 * 60 + ((S.t - OPEN) / NIGHT) * 15 * 60;
+  mins = mins % (24 * 60);
   let h = Math.floor(mins / 60), m = Math.floor(mins % 60 / 15) * 15;
   const ap = h >= 12 ? 'pm' : 'am';
   h = h % 12 || 12;
@@ -1592,10 +2165,43 @@ function updateStats() {
   mEl.classList.toggle('neg', S.money < 0);
   $('#sStars').style.width = (clamp(S.rating, 0, 5) / 5 * 100) + '%';
   $('#sRating').textContent = S.rating.toFixed(1);
-  $('#sVisitors').textContent = visitors.length;
-  $('#sDay').textContent = 'Day ' + S.day;
+  $('#sVisitors').textContent = guestCount();
+  $('#sDay').textContent = isOpen() ? 'Day ' + S.day : 'Closed · night';
   $('#sClock').textContent = clockText();
+  const w = WEATHER[S.weather.kind];
+  $('#sWeatherName').textContent = w.name;
+  $('#sWeather').textContent = `${w.e} ${S.weather.temp}°C`;
 }
+
+function showReport() {
+  const r = S.lastReport;
+  if (!r) return;
+  const tw = WEATHER[S.tomorrow.kind];
+  const income = r.tickets + r.sales;
+  const el = $('#report');
+  el.innerHTML = `
+    <h3>Day ${r.day} report</h3>
+    <dl>
+      <dt>Guests</dt><dd>${r.visitors}</dd>
+      <dt>Tickets</dt><dd class="pos">${fmt(r.tickets)}</dd>
+      <dt>Food, drinks and gifts</dt><dd class="pos">${fmt(r.sales)}</dd>
+      <dt>Feed, cleaning and vets</dt><dd class="neg">−${fmt(r.care)}</dd>
+      <dt>Pens and facilities</dt><dd class="neg">−${fmt(r.upkeep)}</dd>
+      <dt>Staff wages</dt><dd class="neg">−${fmt(r.wages)}</dd>
+      <dt class="total">${r.profit >= 0 ? 'Profit' : 'Loss'}</dt><dd class="total ${r.profit >= 0 ? 'pos' : 'neg'}">${r.profit >= 0 ? '+' : '−'}${fmt(Math.abs(r.profit))}</dd>
+      <dt>Rating</dt><dd>${r.startRating.toFixed(1)} → ${r.rating.toFixed(1)} ★</dd>
+    </dl>
+    <p class="fore">Tomorrow: ${tw.e} ${tw.name}, ${S.tomorrow.temp}°C${S.tomorrow.kind === 'rain' ? '. Fewer guests will come.' : S.tomorrow.kind === 'heat' ? '. Guests will be thirsty.' : '.'}</p>
+    <div class="actions"><button class="btn" id="skipNight">Skip to morning</button><button class="btn alt" id="closeReport">Close</button></div>`;
+  el.hidden = false;
+  $('#skipNight').onclick = () => {
+    for (const p of [...parties]) removeParty(p, true);
+    if (!isOpen()) { S.t = CYCLE - 0.01; }
+    hideReport();
+  };
+  $('#closeReport').onclick = hideReport;
+}
+function hideReport() { $('#report').hidden = true; }
 
 function renderGoals() {
   const done = GOALS.filter(g => S.goals[g.id]).length;
@@ -1608,18 +2214,14 @@ function renderGoals() {
 function checkGoals() {
   let changed = false;
   for (const g of GOALS) {
-    if (S.goals[g.id]) continue;
-    if (g.test()) {
-      S.goals[g.id] = true; changed = true;
-      S.money += g.reward;
-      addNews(`Goal complete: ${g.text}. You earned a ${fmt(g.reward)} bonus.`);
-      toast(`🏆 ${g.text}! +${fmt(g.reward)}`, 'good');
-      for (let i = 0; i < 6; i++) floatText(GATE.x + 0.5 + rnd(-3, 3), GATE.y - 1 - rnd(0, 3), pick(['🎉', '⭐', '🎊']), '#fff');
-    }
+    if (S.goals[g.id] || !g.test()) continue;
+    S.goals[g.id] = true; changed = true;
+    S.money += g.reward;
+    addNews(`Goal complete: ${g.text}. You earned a ${fmt(g.reward)} bonus.`);
+    toast(`🏆 ${g.text}! +${fmt(g.reward)}`, 'good');
   }
   if (changed) renderGoals();
 }
-
 function renderNews() {
   $('#news').innerHTML = S.news.slice(0, 8).map(n => `<li><span class="d">Day ${n.d}</span><span>${n.text}</span></li>`).join('');
 }
@@ -1627,52 +2229,122 @@ function renderNews() {
 const resetBtn = $('#resetBtn');
 resetBtn.addEventListener('click', () => {
   if (!resetBtn.classList.contains('armed')) {
-    resetBtn.classList.add('armed'); resetBtn.textContent = 'Tap again to bulldoze everything';
+    resetBtn.classList.add('armed'); resetBtn.textContent = 'Tap again to start over';
     setTimeout(() => { resetBtn.classList.remove('armed'); resetBtn.textContent = 'Start a new zoo'; }, 3500);
     return;
   }
   resetBtn.classList.remove('armed'); resetBtn.textContent = 'Start a new zoo';
-  S = newState(); visitors = []; animPos.clear(); sel = null;
-  computeDist(); seedVisitors(); bgDirty = true;
+  S = newState(); parties = []; staff = []; animPos.clear(); sel = null; camReady = false;
+  computeReach(); seedGuests(); bgDirty = true; hideReport(); resize();
   renderAll(); save();
-  toast('A fresh zoo, ready for animals.', 'good');
+  toast('A fresh plot of land, ready for animals.', 'good');
 });
 
 /* =========================================================
-   INPUT
+   INPUT: pan, zoom, build
 ========================================================= */
-function tileAt(e) {
-  const r = canvas.getBoundingClientRect();
-  const fx = (e.clientX - r.left) / (r.width / COLS), fy = (e.clientY - r.top) / (r.height / ROWS);
-  const x = Math.floor(fx), y = Math.floor(fy);
+const ptrs = new Map();
+let gesture = null; // {mode, ...}
+function localPt(e) { const r = canvas.getBoundingClientRect(); return { sx: e.clientX - r.left, sy: e.clientY - r.top }; }
+function toWorld(sx, sy) { return { wx: cam.x + sx / cam.z, wy: cam.y + sy / cam.z }; }
+function tileOf(sx, sy) {
+  const { wx, wy } = toWorld(sx, sy);
+  const x = Math.floor(wx), y = Math.floor(wy);
   if (x < 0 || y < 0 || x >= COLS || y >= ROWS) return null;
-  return { x, y, fx, fy };
+  return { x, y, wx, wy };
 }
+canvas.addEventListener('contextmenu', e => e.preventDefault());
 canvas.addEventListener('pointerdown', e => {
-  const p = tileAt(e);
-  pointerDown = true; lastAct = null;
-  if (e.pointerType !== 'mouse') hover = p;
+  const pt = localPt(e);
+  ptrs.set(e.pointerId, pt);
   try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
-  act(p, true);
-  updateStats(); refreshItems();
+  if (ptrs.size === 2) {
+    const [a, b] = [...ptrs.values()];
+    gesture = { mode: 'pinch', d: Math.hypot(a.sx - b.sx, a.sy - b.sy), cx: (a.sx + b.sx) / 2, cy: (a.sy + b.sy) / 2 };
+    hover = null;
+    return;
+  }
+  if (ptrs.size > 2) return;
+  const t = tileOf(pt.sx, pt.sy);
+  if (e.button === 1 || e.button === 2 || tool === 'inspect') {
+    gesture = { mode: 'pan', sx: pt.sx, sy: pt.sy, cx: cam.x, cy: cam.y, moved: false, tap: e.button === 0 };
+    return;
+  }
+  if (isPaint(tool)) {
+    gesture = { mode: 'paint', last: null };
+    hover = t;
+    if (t) { gesture.last = t.x + ',' + t.y; act(t.x, t.y, true); }
+    return;
+  }
+  gesture = { mode: 'place' };
+  hover = t;
 });
 canvas.addEventListener('pointermove', e => {
-  const p = tileAt(e);
-  hover = p;
-  if (pointerDown && (tool === 'path' || tool === 'bulldoze' || tool === 'fac:tree' || tool === 'fac:flowers')) act(p, false);
+  const pt = localPt(e);
+  if (ptrs.has(e.pointerId)) ptrs.set(e.pointerId, pt);
+  if (!gesture) { if (e.pointerType === 'mouse') hover = tileOf(pt.sx, pt.sy); return; }
+  if (gesture.mode === 'pinch' && ptrs.size >= 2) {
+    const [a, b] = [...ptrs.values()];
+    const d = Math.hypot(a.sx - b.sx, a.sy - b.sy), cx = (a.sx + b.sx) / 2, cy = (a.sy + b.sy) / 2;
+    cam.x -= (cx - gesture.cx) / cam.z; cam.y -= (cy - gesture.cy) / cam.z;
+    if (gesture.d > 10) zoomAt(cx, cy, d / gesture.d);
+    gesture.d = d; gesture.cx = cx; gesture.cy = cy;
+    clampCam();
+    return;
+  }
+  if (gesture.mode === 'pan') {
+    const dx = pt.sx - gesture.sx, dy = pt.sy - gesture.sy;
+    if (!gesture.moved && Math.hypot(dx, dy) > 6) { gesture.moved = true; canvas.classList.add('panning'); }
+    if (gesture.moved) { cam.x = gesture.cx - dx / cam.z; cam.y = gesture.cy - dy / cam.z; clampCam(); }
+    if (e.pointerType === 'mouse') hover = tileOf(pt.sx, pt.sy);
+    return;
+  }
+  const t = tileOf(pt.sx, pt.sy);
+  hover = t;
+  if (gesture.mode === 'paint' && t) {
+    const key = t.x + ',' + t.y;
+    if (key !== gesture.last) { gesture.last = key; act(t.x, t.y, false); }
+  }
 });
-const endPointer = e => {
-  pointerDown = false;
+function endPtr(e) {
+  const pt = ptrs.get(e.pointerId) || localPt(e);
+  ptrs.delete(e.pointerId);
+  if (!gesture) return;
+  if (gesture.mode === 'pinch') { if (ptrs.size === 0) gesture = null; return; }
+  if (gesture.mode === 'pan' && !gesture.moved && gesture.tap && e.type === 'pointerup') {
+    const { wx, wy } = toWorld(pt.sx, pt.sy);
+    inspectAt(wx, wy);
+  }
+  if (gesture.mode === 'place' && e.type === 'pointerup') {
+    const t = tileOf(pt.sx, pt.sy);
+    if (t) act(t.x, t.y, true);
+  }
+  canvas.classList.remove('panning');
+  gesture = null;
   if (e.pointerType !== 'mouse') hover = null;
   updateStats(); refreshItems();
-};
-canvas.addEventListener('pointerup', endPointer);
-canvas.addEventListener('pointercancel', endPointer);
-canvas.addEventListener('pointerleave', () => { if (!pointerDown) hover = null; });
+}
+canvas.addEventListener('pointerup', endPtr);
+canvas.addEventListener('pointercancel', endPtr);
+canvas.addEventListener('pointerleave', e => { if (!gesture && e.pointerType === 'mouse') hover = null; });
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const pt = localPt(e);
+  zoomAt(pt.sx, pt.sy, Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0018)));
+}, { passive: false });
+$('#zIn').onclick = () => zoomAt(VW / 2, VH / 2, 1.3);
+$('#zOut').onclick = () => zoomAt(VW / 2, VH / 2, 1 / 1.3);
+$('#zFit').onclick = () => { cam.z = minZoom(); clampCam(); };
+const keys = new Set();
 window.addEventListener('keydown', e => {
+  if (e.target.closest && e.target.closest('input,textarea')) return;
   if (e.key === 'Escape') setTool('inspect');
-  if (e.key === ' ' && e.target === document.body) { e.preventDefault(); setSpeed(speed ? 0 : 1); }
+  if (e.key === ' ' && (e.target === document.body || e.target === canvas)) { e.preventDefault(); setSpeed(speed ? 0 : 1); }
+  if (e.key === '+' || e.key === '=') zoomAt(VW / 2, VH / 2, 1.2);
+  if (e.key === '-') zoomAt(VW / 2, VH / 2, 1 / 1.2);
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'w', 'a', 's', 'd'].includes(e.key) && (e.target === document.body || e.target === canvas)) { keys.add(e.key); e.preventDefault(); }
 });
+window.addEventListener('keyup', e => keys.delete(e.key));
 
 /* =========================================================
    LOOP
@@ -1681,45 +2353,57 @@ let last = performance.now(), uiAcc = 0, saveAcc = 0;
 function frame(now) {
   const rdt = Math.min(0.1, (now - last) / 1000);
   last = now;
-  let gdt = rdt * speed;
+  if (keys.size) {
+    const v = 12 / cam.z * 60 * rdt;
+    if (keys.has('ArrowLeft') || keys.has('a')) cam.x -= v;
+    if (keys.has('ArrowRight') || keys.has('d')) cam.x += v;
+    if (keys.has('ArrowUp') || keys.has('w')) cam.y -= v;
+    if (keys.has('ArrowDown') || keys.has('s')) cam.y += v;
+    clampCam();
+  }
+  let gdt = rdt * speed * (isOpen() ? 1 : 2.5);
   while (gdt > 0) { const s = Math.min(gdt, 0.05); tick(s); gdt -= s; }
   render(now / 1000, rdt);
   uiAcc += rdt; saveAcc += rdt;
   if (uiAcc > 0.25) {
     uiAcc = 0;
-    updateStats(); updateInspector();
-    checkGoals();
-    const lk = Math.floor(S.rating * 10) + '|' + Math.floor(S.money / 10);
-    if (lk !== lastLockKey) { lastLockKey = lk; refreshItems(); updateMgmt(); }
+    updateStats(); updateInspector(); checkGoals();
+    refreshItems(); updateMgmt(); renderReportCard();
   }
   if (saveAcc > 5) { saveAcc = 0; save(); }
   requestAnimationFrame(frame);
 }
 
-function seedVisitors() {
+function seedGuests() {
+  if (!isOpen()) return;
   const tiles = [];
-  S.grid.forEach((c, i) => { if (c.k === 'path') tiles.push({ x: i % COLS, y: Math.floor(i / COLS) }); });
-  for (let i = 0; i < 6 && tiles.length; i++) {
-    const v = spawnVisitor({ place: pick(tiles), hap: rnd(60, 80) });
-    if (v) chooseNext(v);
+  S.grid.forEach((c, i) => { if (c.k === 'path' && reach[i]) tiles.push(i); });
+  for (let n = 0; n < 7 && tiles.length; n++) {
+    const p = spawnParty({ hap: rnd(60, 80) });
+    if (!p) break;
+    const i = pick(tiles);
+    p.i = i; p.x = i % COLS; p.y = (i / COLS) | 0;
+    p.left = rnd(25, 60);
+    decide(p);
   }
 }
-
 function renderAll() {
-  renderItems(); updateHint(); renderInspector(); renderGoals(); renderNews(); updateMgmt(); updateStats();
+  renderItems(); renderSizes(); updateHint(); renderInspector(); renderGoals(); renderNews(); updateMgmt(); updateStats(); renderReportCard();
 }
 
 function start(data) {
   S = loadSaved(data) || newState();
-  S.ex.forEach(e => { if (typeof e.hap !== 'number') e.hap = 60; });
-  computeDist();
-  seedVisitors();
+  S.staff = Object.assign({ keeper: 0, janitor: 0, vet: 0 }, S.staff);
+  computeReach();
+  syncStaff();
+  seedGuests();
   resize();
   renderAll();
+  if (!isOpen() && S.lastReport) showReport();
   try { window.claude?.hot?.snapshot?.(() => ({ state: serialize() })); } catch (e) {}
   new ResizeObserver(() => resize()).observe($('#mapwrap'));
-  window.addEventListener('resize', resize);
   document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
+  window.__zoo = { get S() { return S; }, get parties() { return parties; }, get staff() { return staff; }, tick, act, setTool: t => setTool(t), syncStaff, focusOn };
   requestAnimationFrame(t => { last = t; frame(t); });
 }
 
