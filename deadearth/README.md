@@ -1,6 +1,6 @@
-# Dead Earth VR
+# Ready Player 2
 
-A WebXR survival shooter set on a dead, Earth-like planet. Built for the **Meta Quest browser**, with a keyboard/mouse preview mode for desktop.
+A WebXR arena shooter. You relax in a futuristic hub, then fight in an arena on a dead, Earth-like planet. Built for the **Meta Quest browser**, with a keyboard/mouse preview mode for desktop.
 
 ## Run it
 Serve the repo over HTTPS (WebXR requires a secure context), e.g. GitHub Pages, then open `/deadearth/` in the Quest browser and press **ENTER VR**.

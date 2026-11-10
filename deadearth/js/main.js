@@ -1,4 +1,4 @@
-// DEAD EARTH — VR survival shooter.
+// READY PLAYER 2 — VR arena shooter.
 // Nova Hub lobby (benches, armory, wardrobe, arena portal) + the dead-Earth arena.
 import * as THREE from "three";
 import { generateTextures, canvasTex } from "./textures.js";
