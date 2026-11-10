@@ -1,7 +1,13 @@
 // In-world canvas touch panels (shop + wardrobe), wrist HUD and laser pointers.
 import * as THREE from "three";
 import { WEAPONS } from "./weapons.js";
-import { HAIR_STYLES, HAIR_COLORS, OUTFITS, CLOTH_ITEMS, BODY_TYPES, MASKS, defaultOutfit } from "./avatar.js";
+import { HAIR_STYLES, HAIR_COLORS, OUTFITS, CLOTH_ITEMS, BODY_TYPES, MASKS, FACES, defaultOutfit } from "./avatar.js";
+
+const faceImgs = {};
+function faceImg(id, onload) {
+  if (!faceImgs[id]) { const im = new Image(); im.onload = onload; im.src = new URL(`../models/faces/${id}.jpg`, import.meta.url).href; faceImgs[id] = im; }
+  return faceImgs[id];
+}
 import { save, persist, trySpend } from "./save.js";
 
 const FONT = "'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
@@ -130,6 +136,7 @@ export class ShopPanel extends Panel {
 /* ---------------- wardrobe ---------------- */
 const TABS = [
   { key: "body", label: "BODY", list: BODY_TYPES },
+  { key: "face", label: "FACE", list: FACES },
   { key: "hair", label: "HAIR", list: HAIR_STYLES },
   { key: "hairColor", label: "COLOR", list: HAIR_COLORS },
   { key: "outfit", label: "OUTFIT", list: OUTFITS },
@@ -157,7 +164,8 @@ export class WardrobePanel extends Panel {
     });
     const T = TABS[this.tab];
     const owned = save.owned[T.key];
-    const list = T.key === "outfit" ? T.list.filter((o) => o.body === this.trying.body) : T.list;
+    const list = T.key === "outfit" ? T.list.filter((o) => o.body === this.trying.body)
+      : T.key === "face" ? T.list.filter((f) => f.id === "own" || f.body === this.trying.body) : T.list;
     list.forEach((item, i) => {
       const col = i % 4, row = Math.floor(i / 4);
       const tall = list.length <= 8, x = 28 + col * 306, y = 190 + row * (tall ? 196 : 156), w = 290, h = tall ? 180 : 146, py = tall ? 140 : 118, iy = tall ? 62 : 52;
@@ -166,6 +174,8 @@ export class WardrobePanel extends Panel {
         if (T.key === "body") { // keep an outfit that fits the chosen body
           const cur = OUTFITS.find((o) => o.id === this.trying.outfit);
           if (!cur || cur.body !== item.id) this.trying.outfit = (save.look.body === item.id && save.look.outfit) || defaultOutfit(item.id);
+          const f = FACES.find((x) => x.id === this.trying.face);
+          if (!f || (f.id !== "own" && f.body !== item.id)) this.trying.face = save.look.body === item.id ? save.look.face : "own";
         }
         this.sfx.click(); this.onPreview({ ...this.trying });
       });
@@ -174,7 +184,14 @@ export class WardrobePanel extends Panel {
       ctx.fillStyle = isTry ? "#24323a" : hov ? "#1f2830" : "#161d23"; ctx.fill();
       if (isTry) { ctx.strokeStyle = "#41c7b9"; ctx.lineWidth = 4; ctx.stroke(); }
       const swatch = item.hex ?? item.swatch ?? item.color;
-      if (swatch !== undefined) {
+      if (T.key === "face" && item.id !== "own") {
+        const im = faceImg(item.id, () => this.redraw());
+        ctx.save(); ctx.beginPath(); ctx.arc(x + 54, y + iy, 38, 0, Math.PI * 2); ctx.clip();
+        ctx.fillStyle = "#2a3238"; ctx.fillRect(x + 16, y + iy - 38, 76, 76);
+        if (im.complete && im.naturalWidth) ctx.drawImage(im, x + 16, y + iy - 38, 76, 76);
+        ctx.restore();
+        ctx.strokeStyle = isTry ? "#41c7b9" : "rgba(255,255,255,0.25)"; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(x + 54, y + iy, 38, 0, Math.PI * 2); ctx.stroke();
+      } else if (swatch !== undefined) {
         ctx.fillStyle = "#" + swatch.toString(16).padStart(6, "0");
         ctx.beginPath(); ctx.arc(x + 54, y + iy, 30, 0, Math.PI * 2); ctx.fill();
         ctx.strokeStyle = "rgba(255,255,255,0.25)"; ctx.lineWidth = 2; ctx.stroke();

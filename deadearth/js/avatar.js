@@ -48,6 +48,27 @@ export const OUTFITS = [
   { id: "f_medic", name: "Medic Scrubs", body: "female", model: "Medical_Female_01", price: 600, swatch: 0xe6e8ea },
   { id: "f_combat", name: "Combat Fatigues", body: "female", model: "Military_Female_01", price: 1200, swatch: 0x7a7d6a },
 ];
+// Faces: any person's head can be worn on any outfit of the same body type.
+export const FACES = [
+  { id: "own", name: "Outfit's Own", price: 0, icon: "★" },
+  { id: "Male_Adult_11", name: "Ethan", body: "male", price: 0 },
+  { id: "Male_Adult_16", name: "Lukas", body: "male", price: 0 },
+  { id: "Male_Adult_08", name: "Marco", body: "male", price: 0 },
+  { id: "Male_Adult_20", name: "Daniel", body: "male", price: 150 },
+  { id: "Male_Adult_10", name: "Kenji", body: "male", price: 150 },
+  { id: "Male_Adult_12", name: "Jamal", body: "male", price: 150 },
+  { id: "Business_Male_01", name: "Victor", body: "male", price: 200 },
+  { id: "Military_Male_02", name: "Rafael", body: "male", price: 200 },
+  { id: "Military_Male_01", name: "Marcus (helmet)", body: "male", price: 250 },
+  { id: "Female_Adult_08", name: "Sofia", body: "female", price: 0 },
+  { id: "Female_Adult_17", name: "Emma", body: "female", price: 0 },
+  { id: "Female_Adult_01", name: "Hannah", body: "female", price: 0 },
+  { id: "Female_Adult_04", name: "Kate", body: "female", price: 150 },
+  { id: "Female_Adult_12", name: "Mia", body: "female", price: 150 },
+  { id: "Medical_Female_01", name: "Lin", body: "female", price: 200 },
+  { id: "Military_Female_01", name: "Alex (helmet)", body: "female", price: 250 },
+];
+export const faceFor = (look) => { const f = FACES.find((x) => x.id === look.face); return f && (f.id === "own" || f.body === look.body) ? f.id : "own"; };
 export const defaultOutfit = (body) => (body === "female" ? "f_tee" : "m_shirt");
 export const outfitFor = (look) => OUTFITS.find((o) => o.id === look.outfit && o.body === look.body) || OUTFITS.find((o) => o.id === defaultOutfit(look.body));
 // legacy procedural outfits (fallback body only)
@@ -75,7 +96,7 @@ export const MASKS = [
   { id: "none", name: "Bare Face", price: 0, icon: "☺" },
   { id: "respirator", name: "Respirator", price: 0, icon: "◉" },
 ];
-export const DEFAULT_LOOK = { body: "male", hair: "natural", hairColor: "natural", outfit: "m_shirt", cloth: "none", mask: "none" };
+export const DEFAULT_LOOK = { body: "male", face: "own", hair: "natural", hairColor: "natural", outfit: "m_shirt", cloth: "none", mask: "none" };
 
 /* painted face detail (sphere UV: face centre at u=0.25, v=0.5) */
 const faceCache = {};

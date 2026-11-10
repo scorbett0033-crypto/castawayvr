@@ -21,8 +21,9 @@ Locally: `python3 -m http.server` from the repo root → `http://localhost:8000/
   - Scenery: a cracked dust plain, a broken highway, ruins, tumbleweeds, ash, a shattered moon.
   - Enemies: rival raiders with guns, name tags and coin stakes, plus hover drones and four-legged stalkers.
 - **Realistic humans**: every person in the game (you, hub citizens, arena raiders) is a fully textured, rigged human from the Microsoft Rocketbox library (MIT). They are animated with motion-captured idle, walk, run and sit clips.
-  - Wardrobe tabs: BODY · HAIR · COLOR · OUTFIT · CLOTH · GEAR. Some items cost coins.
-  - OUTFIT picks between real outfits. Each outfit comes with its own person, since the face and clothes are one model.
+  - Wardrobe tabs: BODY · FACE · HAIR · COLOR · OUTFIT · CLOTH · GEAR. Some items cost coins.
+  - FACE puts any person's face on any outfit of the same body type. The outfit's bare skin (hands, arms, neck) is re-toned automatically to match the new face.
+  - OUTFIT picks between real outfits.
   - HAIR: keep the model's natural hair, or swap to wind-simulated strand styles.
   - COLOR tints the hair.
   - CLOTH adds a scarf, cloak or duster coat with cloth physics.

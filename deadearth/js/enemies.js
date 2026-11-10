@@ -3,7 +3,7 @@
 //  - Stalker: four-legged walker with procedural IK gait that lunges at you
 import * as THREE from "three";
 import { Builder, mat4, placeBetween, rand } from "./utils.js";
-import { HAIR_STYLES, HAIR_COLORS, OUTFITS } from "./avatar.js";
+import { HAIR_STYLES, HAIR_COLORS, OUTFITS, FACES } from "./avatar.js";
 import { Human, modelReady } from "./human.js";
 import { buildGun, WEAPONS } from "./weapons.js";
 import { canvasTex } from "./textures.js";
@@ -128,6 +128,7 @@ export class EnemyManager {
     const fit = fits[Math.floor(Math.random() * fits.length)] || OUTFITS[0];
     const look = {
       body: fit.body, outfit: fit.id,
+      face: (() => { const fs = FACES.filter((f) => f.body === fit.body && modelReady(f.id)); return Math.random() < 0.6 && fs.length ? fs[Math.floor(Math.random() * fs.length)].id : "own"; })(),
       hair: Math.random() < 0.7 ? "natural" : HAIR_STYLES[1 + Math.floor(Math.random() * (HAIR_STYLES.length - 1))].id,
       hairColor: Math.random() < 0.7 ? "natural" : HAIR_COLORS[Math.floor(Math.random() * HAIR_COLORS.length)].id,
       cloth: ["none", "none", "scarf", "cloak", "duster"][Math.floor(Math.random() * 5)],
