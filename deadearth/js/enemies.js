@@ -3,7 +3,8 @@
 //  - Stalker: four-legged walker with procedural IK gait that lunges at you
 import * as THREE from "three";
 import { Builder, mat4, placeBetween, rand } from "./utils.js";
-import { Avatar, HAIR_STYLES, HAIR_COLORS } from "./avatar.js";
+import { HAIR_STYLES, HAIR_COLORS, OUTFITS } from "./avatar.js";
+import { Human, modelReady } from "./human.js";
 import { buildGun, WEAPONS } from "./weapons.js";
 import { canvasTex } from "./textures.js";
 
@@ -122,15 +123,17 @@ export class EnemyManager {
     this.sfx.wave();
   }
   spawnRival(x, z) {
+    const fits = ["m_combat", "m_ranger", "f_combat", "m_hoodie", "f_leather", "m_denim", "f_hoodie"]
+      .map((id) => OUTFITS.find((o) => o.id === id)).filter((o) => o && modelReady(o.model));
+    const fit = fits[Math.floor(Math.random() * fits.length)] || OUTFITS[0];
     const look = {
-      body: Math.random() < 0.5 ? "male" : "female",
-      hair: HAIR_STYLES[Math.floor(Math.random() * HAIR_STYLES.length)].id,
-      hairColor: HAIR_COLORS[Math.floor(Math.random() * HAIR_COLORS.length)].id,
-      outfit: ["scav", "nomad", "nightops", "leather", "hazmat", "tee"][Math.floor(Math.random() * 6)],
-      cloth: ["none", "scarf", "cloak", "duster"][Math.floor(Math.random() * 4)],
-      mask: Math.random() < 0.6 ? "respirator" : "none",
+      body: fit.body, outfit: fit.id,
+      hair: Math.random() < 0.7 ? "natural" : HAIR_STYLES[1 + Math.floor(Math.random() * (HAIR_STYLES.length - 1))].id,
+      hairColor: Math.random() < 0.7 ? "natural" : HAIR_COLORS[Math.floor(Math.random() * HAIR_COLORS.length)].id,
+      cloth: ["none", "none", "scarf", "cloak", "duster"][Math.floor(Math.random() * 5)],
+      mask: Math.random() < 0.5 ? "respirator" : "none",
     };
-    const av = new Avatar(this.T, look, { quality: 0.35 });
+    const av = new Human(this.T, look, { quality: 0.35 });
     av.holdingGun = true; av.headYaw = 0;
     av.root.position.set(x, this.world.heightAt(x, z), z);
     av.groundY = av.root.position.y;
@@ -226,7 +229,7 @@ export class EnemyManager {
   destroyBolt(bolt) { this.fx.sparks(bolt.mesh.position, UP, 14, 0xffa040); this.scene.remove(bolt.mesh); bolt.dead = true; }
   kill(e, dir) {
     e.dead = true; e.deathT = 0;
-    if (e.kind === "rival") { e.tag.visible = false; e.av.speed = 0; e.av.holdingGun = false; this.sfx.hurt(); return; }
+    if (e.kind === "rival") { e.tag.visible = false; e.av.speed = 0; e.av.holdingGun = false; e.av.frozen = true; this.sfx.hurt(); return; }
     const p = e.g.position.clone();
     this.fx.explosion(p, e.kind === "drone" ? 1 : 1.5);
     this.sfx.explode(0, e.kind === "drone" ? 0.8 : 1.1);
@@ -333,6 +336,7 @@ export class EnemyManager {
     e.yaw += THREE.MathUtils.clamp(dy, -dt * 5, dt * 5);
     root.rotation.y = e.yaw;
     av.speed = speed;
+    av.aimAt = player.head;
     av.update(dt, this.wind.vec);
     // gun in the right hand, aimed at the player's head
     av.j.handR.getWorldPosition(e.gun.position);

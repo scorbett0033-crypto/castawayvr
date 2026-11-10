@@ -5,7 +5,7 @@ import * as THREE from "three";
 import { Builder, mat4, mulberry32 } from "./utils.js";
 import { withRepeat, canvasTex, softDot } from "./textures.js";
 import { makeSky, Wind } from "./sky.js";
-import { Avatar } from "./avatar.js";
+import { Human } from "./human.js";
 import { buildGun, WEAPONS } from "./weapons.js";
 
 export const HALL = { x0: -12, x1: 12, z0: -9, z1: 9, h: 5.5 };
@@ -364,29 +364,25 @@ export function buildLobby(renderer, T, sfx, WM) {
   pm.dispose();
 
   /* ---------- people of the hub ---------- */
-  const citizen = (i) => ({
-    body: i % 2 ? "female" : "male",
-    hair: ["long", "crop", "ponytail", "bob", "buzz", "dreads"][i % 6],
-    hairColor: ["honey", "black", "auburn", "brown", "blonde", "silver"][i % 6],
-    outfit: ["tee", "aero", "medic", "leather"][i % 4],
-    cloth: ["none", "scarf", "none", "none"][i % 4],
-    mask: "none",
-  });
+  const citizen = (i) => [
+    { body: "male", outfit: "m_suit" }, { body: "female", outfit: "f_medic" },
+    { body: "male", outfit: "m_bluetee", cloth: "scarf" }, { body: "female", outfit: "f_greentee" },
+  ][i % 4];
   const npcs = [];
   [1, 5, 13, 15].forEach((seatIdx, i) => {
     const s = seats[seatIdx];
     s.taken = true;
-    const a = new Avatar(T, citizen(i), { quality: 0.45 });
+    const a = new Human(T, citizen(i), { quality: 0.45 });
     a.setPose("sit");
     a.root.position.set(s.pos.x, 0, s.pos.z);
     a.root.rotation.y = s.yaw;
     scene.add(a.root);
     npcs.push(a);
   });
-  const qm = new Avatar(T, { body: "female", hair: "ponytail", hairColor: "black", outfit: "aero", cloth: "none", mask: "none" }, { quality: 0.45 });
+  const qm = new Human(T, { body: "male", outfit: "m_oxford" }, { quality: 0.45 });
   qm.root.position.set(10.5, 0, -2.6); qm.root.rotation.y = -Math.PI / 2;
   scene.add(qm.root); npcs.push(qm);
-  const preview = new Avatar(T, {}, { quality: 1 });
+  const preview = new Human(T, {}, { quality: 1 });
   preview.root.position.set(PED.x, 0.15, PED.z);
   preview.groundY = 0.15;
   scene.add(preview.root);

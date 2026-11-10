@@ -9,6 +9,7 @@ const SKIN = 0xdcab90;
 
 /* ---------------- catalog ---------------- */
 export const HAIR_STYLES = [
+  { id: "natural", name: "Natural", price: 0, icon: "★" },
   { id: "buzz", name: "Buzz Cut", price: 0 },
   { id: "crop", name: "Messy Crop", price: 0 },
   { id: "bob", name: "Shoulder Bob", price: 200 },
@@ -18,6 +19,7 @@ export const HAIR_STYLES = [
   { id: "dreads", name: "Dreadlocks", price: 450 },
 ];
 export const HAIR_COLORS = [
+  { id: "natural", name: "Natural", hex: null, price: 0, icon: "★" },
   { id: "black", name: "Jet Black", hex: 0x16120f, price: 0 },
   { id: "brown", name: "Chestnut", hex: 0x4a2c18, price: 0 },
   { id: "honey", name: "Honey Brown", hex: 0x7a4a2a, price: 0 },
@@ -27,7 +29,29 @@ export const HAIR_COLORS = [
   { id: "crimson", name: "Crimson Dye", hex: 0x8e1220, price: 400 },
   { id: "teal", name: "Toxic Teal", hex: 0x1d8c84, price: 500 },
 ];
+// Realistic outfits: each one is a fully textured, rigged human (Microsoft Rocketbox library).
 export const OUTFITS = [
+  { id: "m_shirt", name: "Dark Shirt", body: "male", model: "Male_Adult_11", price: 0, swatch: 0x2b2a24 },
+  { id: "m_bluetee", name: "Blue Tee", body: "male", model: "Male_Adult_16", price: 0, swatch: 0x2e4d78 },
+  { id: "m_oxford", name: "Oxford Shirt", body: "male", model: "Male_Adult_08", price: 300, swatch: 0x9fb8d4 },
+  { id: "m_hoodie", name: "Brown Hoodie", body: "male", model: "Male_Adult_20", price: 400, swatch: 0x4a2f22 },
+  { id: "m_track", name: "Track Jacket", body: "male", model: "Male_Adult_10", price: 450, swatch: 0x8a1c22 },
+  { id: "m_denim", name: "Denim Jacket", body: "male", model: "Male_Adult_12", price: 500, swatch: 0x34465e },
+  { id: "m_suit", name: "Business Suit", body: "male", model: "Business_Male_01", price: 800, swatch: 0x1a1a1e },
+  { id: "m_combat", name: "Combat Fatigues", body: "male", model: "Military_Male_02", price: 1200, swatch: 0x7a7d6a },
+  { id: "m_ranger", name: "Ranger Kit", body: "male", model: "Military_Male_01", price: 1500, swatch: 0x8a8a74 },
+  { id: "f_tee", name: "Grey Tee", body: "female", model: "Female_Adult_08", price: 0, swatch: 0x8e8d88 },
+  { id: "f_greentee", name: "Green Tee", body: "female", model: "Female_Adult_17", price: 0, swatch: 0x4fae78 },
+  { id: "f_pink", name: "Pink Blouse", body: "female", model: "Female_Adult_01", price: 300, swatch: 0xd47a92 },
+  { id: "f_hoodie", name: "Hoodie & Shorts", body: "female", model: "Female_Adult_12", price: 400, swatch: 0x1e2024 },
+  { id: "f_leather", name: "Leather Jacket", body: "female", model: "Female_Adult_04", price: 500, swatch: 0x5a3322 },
+  { id: "f_medic", name: "Medic Scrubs", body: "female", model: "Medical_Female_01", price: 600, swatch: 0xe6e8ea },
+  { id: "f_combat", name: "Combat Fatigues", body: "female", model: "Military_Female_01", price: 1200, swatch: 0x7a7d6a },
+];
+export const defaultOutfit = (body) => (body === "female" ? "f_tee" : "m_shirt");
+export const outfitFor = (look) => OUTFITS.find((o) => o.id === look.outfit && o.body === look.body) || OUTFITS.find((o) => o.id === defaultOutfit(look.body));
+// legacy procedural outfits (fallback body only)
+const PROC_OUTFITS = [
   { id: "tee", name: "Grey Tee", price: 0, tee: true, jacket: 0x55585b, jacketTex: "fabric", pants: 0x2c3036, boots: 0x2a2a2c, gloves: "skin", accent: 0x3a3d40 },
   { id: "aero", name: "Aero Suit", price: 1000, jacket: 0xe4e8ec, jacketTex: "leather", pants: 0xd8dde2, boots: 0x30363c, gloves: 0x30363c, accent: 0x2fc6e0, noPack: true },
   { id: "scav", name: "Scavenger", price: 0, jacket: 0x4c5438, jacketTex: "fabric", pants: 0x6e6149, boots: 0x3b2a1d, gloves: 0x2b2723, accent: 0x6b5a3a },
@@ -51,7 +75,7 @@ export const MASKS = [
   { id: "none", name: "Bare Face", price: 0, icon: "☺" },
   { id: "respirator", name: "Respirator", price: 0, icon: "◉" },
 ];
-export const DEFAULT_LOOK = { body: "male", hair: "crop", hairColor: "brown", outfit: "tee", cloth: "none", mask: "none" };
+export const DEFAULT_LOOK = { body: "male", hair: "natural", hairColor: "natural", outfit: "m_shirt", cloth: "none", mask: "none" };
 
 /* painted face detail (sphere UV: face centre at u=0.25, v=0.5) */
 const faceCache = {};
@@ -94,6 +118,7 @@ function faceTexture(body) {
 /* ---------------- hair styles ---------------- */
 const STYLE_PARAMS = {
   buzz: null,
+  natural: null,
   crop: { count: 320, nodes: 4, len: 0.06, stiff: 0.8, bend: 0.2, width: 0.016, out: 0.75 },
   bob: { count: 230, nodes: 7, len: 0.2, stiff: 0.3, bend: 0.45, width: 0.016, out: 0.35, frame: true },
   long: { count: 260, nodes: 10, len: 0.4, stiff: 0.22, bend: 0.4, width: 0.016, out: 0.3, frame: true },
@@ -107,7 +132,7 @@ const CAP_THETA = Math.PI * 0.52;
 const CAP_R = 0.109;
 const CAP_C = new THREE.Vector3(0, 0.004, -0.006);
 
-class HairSystem {
+export class HairSystem {
   constructor(avatar, style, color, quality) {
     this.avatar = avatar;
     const P = STYLE_PARAMS[style];
@@ -310,7 +335,7 @@ class HairSystem {
 }
 
 /* ---------------- cloth ---------------- */
-class Cloth {
+export class Cloth {
   // attach: Object3D whose matrixWorld drives pinned verts; init(i,j) -> local Vector3
   constructor(avatar, { w, h, attach, init, pinRow = 0, material, tatter = 0, seed = 1 }) {
     this.avatar = avatar; this.w = w; this.h = h; this.attach = attach;
@@ -803,7 +828,7 @@ export class Avatar {
       this.colliders = [];
       this.buildBody();
     }
-    const o = OUTFITS.find((x) => x.id === this.look.outfit) || OUTFITS[0];
+    const o = PROC_OUTFITS.find((x) => x.id === this.look.outfit) || PROC_OUTFITS[0];
     const jt = this.fine[o.jacketTex] || this.fine.fabric;
     for (const m of [M.jacket, M.detail]) {
       Object.assign(m, { map: jt.map, normalMap: jt.normalMap, roughness: o.jacketTex === "leather" ? 0.55 : 0.92 });
@@ -831,7 +856,7 @@ export class Avatar {
     for (const m of [M.nose, M.lips]) m.visible = !masked;
     // hair
     if (this.hair) this.hair.dispose();
-    const hc = (HAIR_COLORS.find((c) => c.id === this.look.hairColor) || HAIR_COLORS[0]).hex;
+    const hc = (HAIR_COLORS.find((c) => c.id === this.look.hairColor) || HAIR_COLORS[0]).hex ?? 0x4a2c18;
     this.root.updateMatrixWorld(true);
     this.hair = new HairSystem(this, this.look.hair, new THREE.Color(hc), this.quality);
     M.brow.color.setHex(hc).multiplyScalar(0.8);

@@ -3,7 +3,8 @@
 import * as THREE from "three";
 import { generateTextures, canvasTex } from "./textures.js";
 import { Wind } from "./sky.js";
-import { Avatar, makeGlove } from "./avatar.js";
+import { makeGlove, outfitFor } from "./avatar.js";
+import { Human, loadHumanAssets, ensureModel } from "./human.js";
 import { WEAPONS, weaponById, buildGun, GunState, makeWeaponMaterials } from "./weapons.js";
 import { buildLobby } from "./lobby.js";
 import { buildWasteland, ARENA_R } from "./wasteland.js";
@@ -678,6 +679,11 @@ async function boot() {
   T = await generateTextures((p, name) => { loadBar.style.width = Math.round(p * 70) + "%"; loadTxt.textContent = `Weathering ${name}…`; });
   await new Promise((r) => setTimeout(r, 0));
   WM = makeWeaponMaterials(T);
+  loadTxt.textContent = "Loading people…";
+  const preload = ["Male_Adult_11", "Female_Adult_08", "Business_Male_01", "Medical_Female_01", "Male_Adult_16", "Female_Adult_17", "Male_Adult_08",
+    "Military_Male_01", "Military_Male_02", "Military_Female_01", "Male_Adult_20", "Female_Adult_04", outfitFor(save.look).model];
+  await loadHumanAssets(preload, (p) => { loadBar.style.width = Math.round(70 + p * 8) + "%"; });
+  for (const n of ["Male_Adult_10", "Male_Adult_12", "Female_Adult_12", "Female_Adult_01"]) ensureModel(n); // rest stream in the background
   loadTxt.textContent = "Building Nova Hub…"; loadBar.style.width = "78%";
   await new Promise((r) => setTimeout(r, 0));
   lobby = buildLobby(renderer, T, sfx, WM);
@@ -693,7 +699,7 @@ async function boot() {
   lobby.scene.add(shop.mesh);
   const shopFrame = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.0, 1.58), new THREE.MeshStandardMaterial({ color: 0x23282c, metalness: 0.6, roughness: 0.5 }));
   shopFrame.position.set(9.12, 1.62, -1.6); shopFrame.rotation.z = -0.12; lobby.scene.add(shopFrame);
-  playerAvatar = new Avatar(T, save.look, { quality: 1 });
+  playerAvatar = new Human(T, save.look, { quality: 1 });
   wardrobe = new WardrobePanel(sfx, (look, committed) => {
     lobby.preview.setLook(look); lobby.preview.resetSim();
     if (committed) { playerAvatar.setLook(look); toast("Look saved. Press V on desktop to see yourself in third person."); }

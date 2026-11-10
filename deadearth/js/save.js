@@ -1,5 +1,5 @@
 // Persistent progress (coins, unlocks, look) in localStorage.
-import { DEFAULT_LOOK, HAIR_STYLES, HAIR_COLORS, OUTFITS, CLOTH_ITEMS, BODY_TYPES, MASKS } from "./avatar.js";
+import { DEFAULT_LOOK, HAIR_STYLES, HAIR_COLORS, OUTFITS, CLOTH_ITEMS, BODY_TYPES, MASKS, outfitFor } from "./avatar.js";
 
 const KEY = "deadearth-save-v2";
 const free = (list) => list.filter((x) => x.price === 0).map((x) => x.id);
@@ -23,7 +23,11 @@ function load() {
     const f = fresh();
     const owned = { ...f.owned };
     for (const k in s.owned || {}) owned[k] = [...new Set([...(f.owned[k] || []), ...s.owned[k]])];
-    return { ...f, ...s, owned, look: { ...f.look, ...(s.look || {}) }, stats: { ...f.stats, ...(s.stats || {}) } };
+    const look = { ...f.look, ...(s.look || {}) };
+    look.outfit = outfitFor(look).id;
+    if (!HAIR_STYLES.find((x) => x.id === look.hair)) look.hair = "natural";
+    if (!HAIR_COLORS.find((x) => x.id === look.hairColor)) look.hairColor = "natural";
+    return { ...f, ...s, owned, look, stats: { ...f.stats, ...(s.stats || {}) } };
   } catch { return fresh(); }
 }
 

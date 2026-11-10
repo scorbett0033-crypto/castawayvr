@@ -20,11 +20,14 @@ Locally: `python3 -m http.server` from the repo root → `http://localhost:8000/
 - **Arena (dead Earth)**: this is the only place the planet is dead.
   - Scenery: a cracked dust plain, a broken highway, ruins, tumbleweeds, ash, a shattered moon.
   - Enemies: rival raiders with guns, name tags and coin stakes, plus hover drones and four-legged stalkers.
-- **Avatar**: male or female body, uncovered faces (eyes, brows, nose, lips, stubble), and an optional respirator.
-  - Default look: grey tee, short brown hair (male) or long honey-brown hair (female).
-  - Hair is simulated strand by strand and responds to wind.
-  - Cloth (scarf / cloak / duster) uses verlet physics.
-  - Customise in the wardrobe tabs: BODY · HAIR · COLOR · OUTFIT · CLOTH · GEAR. Some items cost coins.
+- **Realistic humans**: every person in the game (you, hub citizens, arena raiders) is a fully textured, rigged human from the Microsoft Rocketbox library (MIT). They are animated with motion-captured idle, walk, run and sit clips.
+  - Wardrobe tabs: BODY · HAIR · COLOR · OUTFIT · CLOTH · GEAR. Some items cost coins.
+  - OUTFIT picks between real outfits. Each outfit comes with its own person, since the face and clothes are one model.
+  - HAIR: keep the model's natural hair, or swap to wind-simulated strand styles.
+  - COLOR tints the hair.
+  - CLOTH adds a scarf, cloak or duster coat with cloth physics.
+  - GEAR adds a respirator.
+  - Raiders hold their guns with arm IK. Credits are in `models/CREDITS.md`.
 
 ## VR controls
 | Input | Action |

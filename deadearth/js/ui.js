@@ -1,7 +1,7 @@
 // In-world canvas touch panels (shop + wardrobe), wrist HUD and laser pointers.
 import * as THREE from "three";
 import { WEAPONS } from "./weapons.js";
-import { HAIR_STYLES, HAIR_COLORS, OUTFITS, CLOTH_ITEMS, BODY_TYPES, MASKS } from "./avatar.js";
+import { HAIR_STYLES, HAIR_COLORS, OUTFITS, CLOTH_ITEMS, BODY_TYPES, MASKS, defaultOutfit } from "./avatar.js";
 import { save, persist, trySpend } from "./save.js";
 
 const FONT = "'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
@@ -145,7 +145,7 @@ export class WardrobePanel extends Panel {
     this.trying = { ...save.look };
     this.redraw();
   }
-  resetTryOn() { this.trying = { ...save.look }; this.onPreview(this.trying); this.redraw(); }
+  resetTryOn() { this.trying = { ...save.look }; this.onPreview({ ...this.trying }); this.redraw(); }
   draw(ctx, W, H) {
     frame(ctx, W, H, "WARDROBE  //  YOUR AVATAR", "#41c7b9");
     TABS.forEach((t, i) => {
@@ -157,28 +157,36 @@ export class WardrobePanel extends Panel {
     });
     const T = TABS[this.tab];
     const owned = save.owned[T.key];
-    T.list.forEach((item, i) => {
+    const list = T.key === "outfit" ? T.list.filter((o) => o.body === this.trying.body) : T.list;
+    list.forEach((item, i) => {
       const col = i % 4, row = Math.floor(i / 4);
-      const x = 28 + col * 306, y = 196 + row * 196, w = 290, h = 180;
-      const hov = this.button("i" + i, x, y, w, h, () => { this.trying[T.key] = item.id; this.sfx.click(); this.onPreview(this.trying); });
+      const tall = list.length <= 8, x = 28 + col * 306, y = 190 + row * (tall ? 196 : 156), w = 290, h = tall ? 180 : 146, py = tall ? 140 : 118, iy = tall ? 62 : 52;
+      const hov = this.button("i" + i, x, y, w, h, () => {
+        this.trying[T.key] = item.id;
+        if (T.key === "body") { // keep an outfit that fits the chosen body
+          const cur = OUTFITS.find((o) => o.id === this.trying.outfit);
+          if (!cur || cur.body !== item.id) this.trying.outfit = (save.look.body === item.id && save.look.outfit) || defaultOutfit(item.id);
+        }
+        this.sfx.click(); this.onPreview({ ...this.trying });
+      });
       rr(ctx, x, y, w, h, 14);
       const isTry = this.trying[T.key] === item.id;
       ctx.fillStyle = isTry ? "#24323a" : hov ? "#1f2830" : "#161d23"; ctx.fill();
       if (isTry) { ctx.strokeStyle = "#41c7b9"; ctx.lineWidth = 4; ctx.stroke(); }
-      const swatch = item.hex ?? item.jacket ?? item.color;
+      const swatch = item.hex ?? item.swatch ?? item.color;
       if (swatch !== undefined) {
         ctx.fillStyle = "#" + swatch.toString(16).padStart(6, "0");
-        ctx.beginPath(); ctx.arc(x + 54, y + 62, 30, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(x + 54, y + iy, 30, 0, Math.PI * 2); ctx.fill();
         ctx.strokeStyle = "rgba(255,255,255,0.25)"; ctx.lineWidth = 2; ctx.stroke();
       } else {
-        ctx.fillStyle = "#41c7b9"; ctx.font = `700 46px ${FONT}`; ctx.textAlign = "center"; ctx.fillText(item.icon || "✂", x + 54, y + 64);
+        ctx.fillStyle = "#41c7b9"; ctx.font = `700 46px ${FONT}`; ctx.textAlign = "center"; ctx.fillText(item.icon || "✂", x + 54, y + iy + 2);
       }
       ctx.textAlign = "left"; ctx.fillStyle = "#e8edf1"; ctx.font = `700 26px ${FONT}`;
-      ctx.fillText(item.name, x + 100, y + 62);
+      ctx.fillText(item.name, x + 100, y + iy);
       ctx.font = `600 22px ${FONT}`;
-      if (save.look[T.key] === item.id) { ctx.fillStyle = "#5fe0a0"; ctx.fillText("WEARING", x + 22, y + 140); }
-      else if (owned.includes(item.id)) { ctx.fillStyle = "#9fb3c4"; ctx.fillText("OWNED", x + 22, y + 140); }
-      else { ctx.fillStyle = save.coins >= item.price ? "#ffcf5a" : "#b06a5a"; ctx.fillText(`${item.price} ¢`, x + 22, y + 140); }
+      if (save.look[T.key] === item.id) { ctx.fillStyle = "#5fe0a0"; ctx.fillText("WEARING", x + 22, y + py); }
+      else if (owned.includes(item.id)) { ctx.fillStyle = "#9fb3c4"; ctx.fillText("OWNED", x + 22, y + py); }
+      else { ctx.fillStyle = save.coins >= item.price ? "#ffcf5a" : "#b06a5a"; ctx.fillText(`${item.price} ¢`, x + 22, y + py); }
     });
     // action bar: buy/wear everything currently being tried on
     const pending = TABS.filter((t) => !save.owned[t.key].includes(this.trying[t.key]));
@@ -187,11 +195,11 @@ export class WardrobePanel extends Panel {
     const by = H - 128, bh = 92;
     bigButton(this, ctx, "revert", 28, by, 300, bh, "REVERT", changed ? "neutral" : "off", () => { this.sfx.click(); this.resetTryOn(); });
     if (!changed) bigButton(this, ctx, "act", 348, by, W - 376, bh, "THIS IS YOUR CURRENT LOOK", "off");
-    else if (cost === 0) bigButton(this, ctx, "act", 348, by, W - 376, bh, "WEAR THIS LOOK", "equip", () => { save.look = { ...this.trying }; persist(); this.sfx.click(); this.onPreview(this.trying, true); });
+    else if (cost === 0) bigButton(this, ctx, "act", 348, by, W - 376, bh, "WEAR THIS LOOK", "equip", () => { save.look = { ...this.trying }; persist(); this.sfx.click(); this.onPreview({ ...this.trying }, true); });
     else if (save.coins >= cost) bigButton(this, ctx, "act", 348, by, W - 376, bh, `BUY & WEAR  —  ${cost} ¢`, "buy", () => {
       if (!trySpend(cost)) return;
       pending.forEach((t) => save.owned[t.key].push(this.trying[t.key]));
-      save.look = { ...this.trying }; persist(); this.sfx.coin(); this.onPreview(this.trying, true);
+      save.look = { ...this.trying }; persist(); this.sfx.coin(); this.onPreview({ ...this.trying }, true);
     });
     else bigButton(this, ctx, "act", 348, by, W - 376, bh, `NEED ${cost - save.coins} ¢ MORE — WIN COINS IN THE ARENA`, "deny", () => this.sfx.deny());
   }
