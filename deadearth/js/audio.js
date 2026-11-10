@@ -1,6 +1,6 @@
 // Fully synthesized sound: gunshots, plasma bolts, explosions, UI, ambience.
 export class Sfx {
-  constructor() { this.ctx = null; this.master = null; }
+  constructor() { this.ctx = null; this.master = null; this.vol = 1; }
   init() {
     if (this.ctx) { this.ctx.resume(); return; }
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -29,7 +29,7 @@ export class Sfx {
     if (freqEnd) f.frequency.exponentialRampToValueAtTime(freqEnd, t + dur);
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(gain, t + attack);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain * this.vol), t + attack);
     g.gain.exponentialRampToValueAtTime(0.0001, t + decay);
     const p = this.ctx.createStereoPanner ? this.ctx.createStereoPanner() : null;
     let out = src.connect(f).connect(g);
@@ -45,7 +45,7 @@ export class Sfx {
     if (freqEnd) o.frequency.exponentialRampToValueAtTime(freqEnd, t + dur);
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(gain, t + attack);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain * this.vol), t + attack);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     const p = this.ctx.createStereoPanner ? this.ctx.createStereoPanner() : null;
     let out = o.connect(g);
@@ -53,7 +53,8 @@ export class Sfx {
     out.connect(this.master);
     o.start(t); o.stop(t + dur + 0.05);
   }
-  gun(kind) {
+  gun(kind, vol = 1) {
+    this.vol = vol;
     switch (kind) {
       case "pistol": this.noise(0.25, { freq: 3200, freqEnd: 300, gain: 0.9 }); this.tone(140, 0.12, { type: "triangle", gain: 0.5, freqEnd: 50 }); break;
       case "smg": this.noise(0.14, { freq: 3800, freqEnd: 500, gain: 0.6 }); this.tone(170, 0.07, { type: "triangle", gain: 0.35, freqEnd: 60 }); break;
@@ -62,7 +63,10 @@ export class Sfx {
       case "dmr": this.noise(0.7, { freq: 3600, freqEnd: 150, gain: 1.1 }); this.tone(80, 0.35, { gain: 0.8, freqEnd: 30 }); this.noise(1.2, { freq: 500, gain: 0.25, attack: 0.05, delay: 0.08 }); break;
       case "lancer": this.tone(1800, 0.5, { type: "sawtooth", gain: 0.25, freqEnd: 90 }); this.noise(0.6, { type: "bandpass", freq: 900, q: 1.5, gain: 0.9, freqEnd: 120 }); this.tone(55, 0.5, { gain: 0.8, freqEnd: 30 }); break;
     }
+    this.vol = 1;
   }
+  portal() { this.noise(1.2, { type: "bandpass", freq: 200, freqEnd: 3000, q: 2, gain: 0.7, attack: 0.3 }); this.tone(90, 1.2, { type: "sine", gain: 0.5, freqEnd: 600 }); this.tone(1200, 0.8, { type: "triangle", gain: 0.08, freqEnd: 2400, delay: 0.4 }); }
+  whiz() { this.noise(0.12, { type: "highpass", freq: 2500, gain: 0.25, freqEnd: 900 }); }
   dry() { this.noise(0.04, { type: "highpass", freq: 3000, gain: 0.3 }); }
   magOut() { this.noise(0.06, { type: "bandpass", freq: 1200, q: 3, gain: 0.4 }); this.tone(400, 0.05, { type: "square", gain: 0.05 }); }
   magIn() { this.noise(0.05, { type: "bandpass", freq: 2200, q: 4, gain: 0.5 }); this.noise(0.05, { type: "bandpass", freq: 1500, q: 4, gain: 0.5, delay: 0.09 }); }

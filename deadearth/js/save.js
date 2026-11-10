@@ -1,7 +1,7 @@
 // Persistent progress (coins, unlocks, look) in localStorage.
-import { DEFAULT_LOOK, HAIR_STYLES, HAIR_COLORS, OUTFITS, CLOTH_ITEMS } from "./avatar.js";
+import { DEFAULT_LOOK, HAIR_STYLES, HAIR_COLORS, OUTFITS, CLOTH_ITEMS, BODY_TYPES, MASKS } from "./avatar.js";
 
-const KEY = "deadearth-save-v1";
+const KEY = "deadearth-save-v2";
 const free = (list) => list.filter((x) => x.price === 0).map((x) => x.id);
 
 function fresh() {
@@ -9,7 +9,7 @@ function fresh() {
     coins: 300,
     weapons: ["pistol"],
     equipped: "pistol",
-    owned: { hair: free(HAIR_STYLES), hairColor: free(HAIR_COLORS), outfit: free(OUTFITS), cloth: free(CLOTH_ITEMS) },
+    owned: { body: free(BODY_TYPES), mask: free(MASKS), hair: free(HAIR_STYLES), hairColor: free(HAIR_COLORS), outfit: free(OUTFITS), cloth: free(CLOTH_ITEMS) },
     look: { ...DEFAULT_LOOK },
     stats: { kills: 0, bestWave: 0, runs: 0 },
   };
@@ -21,7 +21,9 @@ function load() {
     if (!raw) return fresh();
     const s = JSON.parse(raw);
     const f = fresh();
-    return { ...f, ...s, owned: { ...f.owned, ...(s.owned || {}) }, look: { ...f.look, ...(s.look || {}) }, stats: { ...f.stats, ...(s.stats || {}) } };
+    const owned = { ...f.owned };
+    for (const k in s.owned || {}) owned[k] = [...new Set([...(f.owned[k] || []), ...s.owned[k]])];
+    return { ...f, ...s, owned, look: { ...f.look, ...(s.look || {}) }, stats: { ...f.stats, ...(s.stats || {}) } };
   } catch { return fresh(); }
 }
 

@@ -1,5 +1,5 @@
 // DEAD EARTH — VR survival shooter.
-// Shelter lobby (benches, armory, wardrobe) + the dead planet's surface.
+// Nova Hub lobby (benches, armory, wardrobe, arena portal) + the dead-Earth arena.
 import * as THREE from "three";
 import { generateTextures, canvasTex } from "./textures.js";
 import { Wind } from "./sky.js";
@@ -10,7 +10,7 @@ import { buildWasteland, ARENA_R } from "./wasteland.js";
 import { EnemyManager } from "./enemies.js";
 import { FX } from "./fx.js";
 import { Sfx } from "./audio.js";
-import { save, persist, addCoins, onSave } from "./save.js";
+import { save, persist, addCoins, trySpend, onSave } from "./save.js";
 import { ShopPanel, WardrobePanel, WristHUD, Panel, makeLaser } from "./ui.js";
 
 const $ = (id) => document.getElementById(id);
@@ -55,11 +55,12 @@ const fadeAmt = cameraShell(0x000000);
 /* ================= game state ================= */
 const sfx = new Sfx();
 const fx = new FX();
-let T, WM, lobby, waste, enemies, shop, wardrobe, deployPanel, wrist, playerAvatar;
+let T, WM, lobby, waste, enemies, shop, wardrobe, stakePanel, wrist, playerAvatar;
 let mode = "loading";
 let scene = null;
 const surfaceWind = new Wind(5.5, 0.7);
-const player = { hp: 100, regenT: 0, seated: null, dead: false, extractT: 0, beaconT: 0, kills: 0, runCoins: 0 };
+const player = { hp: 100, regenT: 0, seated: null, dead: false, extractT: 0, beaconT: 0, kills: 0, runCoins: 0, carried: 0, stake: 0, stakeSel: 0, moving: false };
+const STAKES = [50, 100, 250, 500, 1000];
 const gunStates = new Map();
 let gun = null, gunState = null, gunId = null;
 const gunCache = new Map();
@@ -203,7 +204,7 @@ function fire() {
       if (h.bolt) { if (!h.bolt.dead) { enemies.destroyBolt(h.bolt); addReward(5, h.point); } end = h.point; stopped = !def.pierce; if (stopped) break; continue; }
       const reward = enemies.damage(h.enemy, def.dmg * (h.weak ? 2.5 : 1), h.point, shotDir);
       hitSomething = true;
-      if (reward) { gotKill = true; player.kills++; save.stats.kills++; addReward(reward, h.point); }
+      if (reward) { gotKill = true; player.kills++; save.stats.kills++; addReward(reward, h.point, h.enemy.kind === "rival" ? `· ${h.enemy.name}'s stake` : ""); if (h.enemy.kind === "rival") toast(`You took Raider ${h.enemy.name}'s ${reward} ¢ stake!`); }
       if (!def.pierce) { end = h.point; stopped = true; break; }
     }
     if (!stopped && world) {
@@ -233,16 +234,16 @@ function fire() {
 /* floating "+25 ¢" rewards */
 const popTexCache = new Map();
 const pops = [];
-function addReward(n, pos) {
-  addCoins(n); player.runCoins += n; sfx.coin();
-  const key = `+${n} ¢`;
-  if (!popTexCache.has(key)) popTexCache.set(key, canvasTex(256, 96, (ctx) => {
-    ctx.font = "800 64px Segoe UI, Arial"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.lineWidth = 8; ctx.strokeStyle = "rgba(0,0,0,0.7)"; ctx.strokeText(key, 128, 48);
-    ctx.fillStyle = "#ffd25a"; ctx.fillText(key, 128, 48);
+function addReward(n, pos, label = "") {
+  player.carried += n; player.runCoins += n; sfx.coin();
+  const key = label ? `+${n} ¢ ${label}` : `+${n} ¢`;
+  if (!popTexCache.has(key)) popTexCache.set(key, canvasTex(512, 96, (ctx) => {
+    ctx.font = "800 56px Segoe UI, Arial"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.lineWidth = 8; ctx.strokeStyle = "rgba(0,0,0,0.7)"; ctx.strokeText(key, 256, 48);
+    ctx.fillStyle = "#ffd25a"; ctx.fillText(key, 256, 48);
   }));
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: popTexCache.get(key), depthTest: false, transparent: true, toneMapped: false }));
-  s.position.copy(pos); s.scale.set(1.2, 0.45, 1); s.renderOrder = 50; s.userData.life = 1.4;
+  s.position.copy(pos); s.scale.set(2.4, 0.45, 1); s.renderOrder = 50; s.userData.life = 1.4;
   scene.add(s); pops.push(s);
 }
 
@@ -273,8 +274,10 @@ function enterLobby(msg) {
   player.hp = 100; player.dead = false; player.seated = null;
   gunStates.forEach((g) => { g.ammo = g.def.mag; g.magOut = false; g.reloadT = 0; });
   fx.heightAt = () => 0;
-  shop.redraw(); wardrobe.redraw();
-  toast(msg || "Welcome to Shelter 7.");
+  player.carried = 0; player.stake = 0; player.stakeSel = 0; lobby.setArmed(false);
+  if (save.coins < STAKES[0]) { addCoins(100); msg = (msg ? msg + "  " : "") + "Hub grant: +100 ¢ so you can play again."; }
+  shop.redraw(); wardrobe.redraw(); stakePanel.redraw();
+  toast(msg || "Welcome to Nova Hub.");
   playerAvatar.resetSim();
 }
 function enterSurface() {
@@ -288,20 +291,35 @@ function enterSurface() {
   equip(save.equipped);
   enemies.startRun();
   playerAvatar.resetSim();
-  toast("Hostiles inbound. Hold Y or stand on the beacon to extract.");
+  enemies.playerStake = player.stake;
+  toast(`Dead Earth arena. ${player.stake} ¢ at stake — kill raiders to take theirs, extract to bank it.`);
 }
 function goLobby(msg) {
   if (fade.dir) return;
   if (enemies.wave > save.stats.bestWave) { save.stats.bestWave = enemies.wave; persist(); }
-  const summary = `${msg} Wave ${enemies.wave} · ${player.kills} kills · +${player.runCoins} ¢`;
+  let summary;
+  if (player.dead) summary = msg;
+  else {
+    const bank = player.carried;
+    addCoins(bank);
+    summary = `${msg} Banked ${bank} ¢ (stake ${player.stake} ¢, profit ${bank - player.stake >= 0 ? "+" : ""}${bank - player.stake} ¢). ${player.kills} kills.`;
+  }
+  player.carried = 0;
   startFade(() => enterLobby(summary));
 }
-function deploy() {
-  if (fade.dir) return;
-  lobby.openDoor();
-  deployPanel.armed = true; deployPanel.redraw();
-  setTimeout(() => startFade(() => { enterSurface(); deployPanel.armed = false; deployPanel.redraw(); }), 1700);
+// walking through the blue portal: pay the stake, then go to the arena
+let portalCooldown = 0;
+function tryPortal() {
+  if (fade.dir || portalCooldown > 0) return;
+  portalCooldown = 1.5;
+  const st = player.stakeSel;
+  if (!st) { sfx.deny(); toast("Insert a coin stake at the portal terminal first."); return pushBack(); }
+  if (!trySpend(st)) { sfx.deny(); toast(`You need ${st} ¢ for that stake.`); return pushBack(); }
+  player.stake = st; player.carried = st;
+  sfx.portal();
+  startFade(() => enterSurface());
 }
+function pushBack() { rig.position.z += 0.9; }
 
 /* ================= HUD (desktop) ================= */
 let toastT = 0;
@@ -313,7 +331,7 @@ function updateDomHud(dt) {
   hud.style.display = "block";
   $("hp").style.width = player.hp + "%";
   $("hp").style.background = player.hp > 35 ? "#4fe08f" : "#ff4a3a";
-  $("coins").textContent = `${save.coins.toLocaleString()} ¢`;
+  $("coins").textContent = mode === "surface" ? `${player.carried.toLocaleString()} ¢ at risk` : `${save.coins.toLocaleString()} ¢`;
   $("ammo").textContent = mode === "surface" && gunState ? `${gunState.def.name}  ${gunState.reloadT > 0 ? "RELOADING" : gunState.ammo + " / " + gunState.def.mag}` : "";
   $("wave").textContent = mode === "surface" ? (enemies.wave === 0 || enemies.remaining() === 0 ? `WAVE ${enemies.wave + 1} INCOMING…` : `WAVE ${enemies.wave} · ${enemies.remaining()} hostiles`) : player.seated ? "Seated — press E to stand" : "";
   $("prompt").textContent = desktopPrompt;
@@ -502,6 +520,10 @@ function frame() {
     }
     updateHover(hits);
     lobby.setDisplay(shop.sel, WM);
+    portalCooldown = Math.max(0, portalCooldown - dt);
+    const P = lobby.portal.pos;
+    if (!player.seated && Math.abs(headW.x - P.x) < 1.0 && headW.z < P.z + 0.25 && headW.z > P.z - 0.6) tryPortal();
+    if (!player.seated && Math.hypot(headW.x - P.x, headW.z - P.z) < 3.5 && !desktopPrompt) desktopPrompt = player.stakeSel ? `Walk into the portal — ${player.stakeSel} ¢ stake` : "Choose a stake at the terminal";
     lobby.update(dt, t);
   } else if (mode === "surface") {
     surfaceWind.update(dt);
@@ -579,16 +601,25 @@ function frame() {
     if (extract >= 1) goLobby("Extracted safely.");
     /* enemies */
     const feet = new THREE.Vector3(headW.x, rig.position.y, headW.z);
-    enemies.update(dt, t, { head: headW, feet }, (dmg, dir) => {
+    enemies.update(dt, t, { head: headW, feet, moving: playerAvatar.speed > 0 }, (dmg, dir, src) => {
       if (player.dead) return;
       player.hp -= dmg; player.regenT = 4; hurtAmt.value = Math.min(1, hurtAmt.value + 0.6);
       sfx.hurt(); haptic(R, 0.9, 120); haptic(L, 0.9, 120);
-      if (player.hp <= 0) { player.hp = 0; player.dead = true; toast("You were downed. Coins earned are kept."); setTimeout(() => goLobby("Downed on the surface."), 2800); }
+      if (player.hp <= 0) {
+        player.hp = 0; player.dead = true;
+        const lost = player.carried;
+        let msg;
+        if (src && src.kind === "rival") { enemies.creditKiller(src, lost); msg = `${src.name} killed you and took your ${lost} ¢.`; }
+        else msg = `Killed by ${src ? src.name : "the wasteland"}. Your ${lost} ¢ is lost in the ash.`;
+        player.carried = 0;
+        toast(msg);
+        setTimeout(() => goLobby(msg), 3000);
+      }
     });
     if (player.regenT > 0) player.regenT -= dt; else player.hp = Math.min(100, player.hp + dt * 6);
     waste.update(dt, t, headW, surfaceWind.vec);
     sfx.setAmbience("surface", surfaceWind.gust);
-    wrist.set({ hp: Math.round(player.hp), coins: save.coins, wave: enemies.wave, left: enemies.remaining(), extract: Math.min(1, extract) });
+    wrist.set({ hp: Math.round(player.hp), coins: save.coins, risk: player.carried, wave: enemies.wave, left: enemies.remaining(), extract: Math.min(1, extract) });
     for (let i = dropped.length - 1; i >= 0; i--) {
       const m = dropped[i]; m.userData.life -= dt;
       m.userData.vel.y -= 9.8 * dt; m.position.addScaledVector(m.userData.vel, dt); m.rotation.x += dt * 3;
@@ -603,7 +634,7 @@ function frame() {
   if (xr && L) {
     if (wrist.mesh.parent !== L.grip) { L.grip.add(wrist.mesh); wrist.mesh.position.set(0.0, 0.035, 0.09); wrist.mesh.rotation.set(-Math.PI / 2.4, 0, 0); }
     wrist.mesh.visible = true;
-    if (mode === "lobby") wrist.set({ hp: 100, coins: save.coins, wave: 0, left: 0, extract: 0 });
+    if (mode === "lobby") wrist.set({ hp: 100, coins: save.coins, risk: -1, wave: 0, left: 0, extract: 0 });
   } else wrist.mesh.visible = false;
 
   /* ---- own avatar (desktop third-person view) ---- */
@@ -647,13 +678,13 @@ async function boot() {
   T = await generateTextures((p, name) => { loadBar.style.width = Math.round(p * 70) + "%"; loadTxt.textContent = `Weathering ${name}…`; });
   await new Promise((r) => setTimeout(r, 0));
   WM = makeWeaponMaterials(T);
-  loadTxt.textContent = "Building Shelter 7…"; loadBar.style.width = "78%";
+  loadTxt.textContent = "Building Nova Hub…"; loadBar.style.width = "78%";
   await new Promise((r) => setTimeout(r, 0));
   lobby = buildLobby(renderer, T, sfx, WM);
   loadTxt.textContent = "Scorching the surface…"; loadBar.style.width = "88%";
   await new Promise((r) => setTimeout(r, 0));
   waste = buildWasteland(renderer, T);
-  enemies = new EnemyManager(waste.scene, T, waste, fx, sfx);
+  enemies = new EnemyManager(waste.scene, T, waste, fx, sfx, WM, surfaceWind);
   fx.onCasing = () => sfx.casing();
 
   // terminals
@@ -670,25 +701,47 @@ async function boot() {
   wardrobe.mesh.position.set(-11.0, 1.55, -1.3); wardrobe.mesh.rotation.y = Math.PI / 2 - 0.35;
   lobby.scene.add(wardrobe.mesh);
   lobby.preview.setLook(save.look);
-  deployPanel = new Panel(0.9, 0.5, 720, 400);
-  deployPanel.draw = function (ctx, W, H) {
-    ctx.fillStyle = "#120d08"; ctx.fillRect(0, 0, W, H);
-    ctx.strokeStyle = "#ffb02e"; ctx.lineWidth = 6; ctx.strokeRect(8, 8, W - 16, H - 16);
-    ctx.fillStyle = "#ffb02e"; ctx.font = "800 44px Segoe UI, Arial"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText("SURFACE AIRLOCK", W / 2, 70);
-    ctx.font = "500 26px Segoe UI, Arial"; ctx.fillStyle = "#d9c9a8";
-    ctx.fillText(`Equipped: ${weaponById(save.equipped).name}`, W / 2, 128);
-    ctx.fillText(`Best wave: ${save.stats.bestWave}  ·  Total kills: ${save.stats.kills}`, W / 2, 166);
-    const hov = this.button("go", 60, 220, W - 120, 130, () => deploy());
-    ctx.fillStyle = this.armed ? "#5a3a10" : hov ? "#ffc35a" : "#ff9a2a"; ctx.fillRect(60, 220, W - 120, 130);
-    ctx.fillStyle = "#140c04"; ctx.font = "900 50px Segoe UI, Arial"; ctx.fillText(this.armed ? "CYCLING AIRLOCK…" : "DEPLOY ▸", W / 2, 287);
+  stakePanel = new Panel(1.0, 0.62, 800, 496);
+  stakePanel.draw = function (ctx, W, H) {
+    const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, "#0a1e33"); g.addColorStop(1, "#05101e");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = "#4fb8ff"; ctx.lineWidth = 5; ctx.strokeRect(8, 8, W - 16, H - 16);
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillStyle = "#6fd0ff"; ctx.font = "800 40px Segoe UI, Arial"; ctx.fillText("ARENA STAKE", W / 2, 52);
+    ctx.font = "500 21px Segoe UI, Arial"; ctx.fillStyle = "#cfe8ff";
+    ctx.fillText("Put coins in to enter. A raider who kills you takes them,", W / 2, 96);
+    ctx.fillText("plus everything you carry. Kill raiders to take theirs.", W / 2, 124);
+    STAKES.forEach((v, i) => {
+      const x = 40 + i * 146, y = 156, w = 132, h = 96;
+      const ok = save.coins >= v, sel = player.stakeSel === v;
+      const hov = this.button("s" + v, x, y, w, h, ok ? () => { player.stakeSel = v; lobby.setArmed(true); sfx.coin(); toast(`${v} ¢ stake ready. Walk through the blue portal.`); } : () => sfx.deny());
+      ctx.fillStyle = sel ? "#2f9cff" : hov && ok ? "#1d4a73" : ok ? "#13314f" : "#1a1f26"; ctx.fillRect(x, y, w, h);
+      if (sel) { ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.strokeRect(x, y, w, h); }
+      ctx.fillStyle = ok ? (sel ? "#04101c" : "#ffcf5a") : "#5a6470"; ctx.font = "800 34px Segoe UI, Arial"; ctx.fillText(`${v}`, x + w / 2, y + 42);
+      ctx.font = "600 18px Segoe UI, Arial"; ctx.fillText("coins", x + w / 2, y + 74);
+    });
+    ctx.font = "600 22px Segoe UI, Arial"; ctx.fillStyle = "#9fb7cc";
+    ctx.fillText(`Your coins: ${save.coins} ¢   ·   Weapon: ${weaponById(save.equipped).name}`, W / 2, 300);
+    ctx.fillText(`Best wave ${save.stats.bestWave}  ·  Total kills ${save.stats.kills}`, W / 2, 334);
+    ctx.fillStyle = player.stakeSel ? "#2f9cff" : "#1a2a3a"; ctx.fillRect(40, 372, W - 80, 88);
+    ctx.fillStyle = player.stakeSel ? "#04101c" : "#6f8396"; ctx.font = "800 30px Segoe UI, Arial";
+    ctx.fillText(player.stakeSel ? `STAKE ${player.stakeSel} ¢  —  WALK INTO THE PORTAL ▸` : "PICK A STAKE ABOVE", W / 2, 416);
   };
-  deployPanel.redraw();
-  deployPanel.mesh.position.set(-5.9, 1.5, -8.73);
-  lobby.scene.add(deployPanel.mesh);
+  stakePanel.redraw();
+  {
+    const P = lobby.portal.pos;
+    stakePanel.mesh.position.set(P.x + 2.4, 1.45, P.z + 0.6);
+    stakePanel.mesh.rotation.y = -0.45;
+    lobby.scene.add(stakePanel.mesh);
+    const back = new THREE.Mesh(new THREE.BoxGeometry(1.08, 0.7, 0.04), new THREE.MeshStandardMaterial({ color: 0xe8ecf0, roughness: 0.3 }));
+    back.position.copy(stakePanel.mesh.position).add(new THREE.Vector3(Math.sin(-0.45) * -0.025, 0, Math.cos(-0.45) * -0.025)); back.rotation.y = -0.45;
+    lobby.scene.add(back);
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.06, 1.15, 12), back.material); post.position.set(back.position.x, 0.575, back.position.z - 0.02); lobby.scene.add(post);
+    lobby.colliders.push({ x0: post.position.x - 0.3, x1: post.position.x + 0.3, z0: post.position.z - 0.3, z1: post.position.z + 0.3 });
+  }
   wrist = new WristHUD();
-  interactables = [shop.mesh, wardrobe.mesh, deployPanel.mesh, lobby.benches, lobby.glass, ...lobby.rackGuns];
-  onSave(() => { shop.redraw(); wardrobe.redraw(); deployPanel.redraw(); });
+  interactables = [shop.mesh, wardrobe.mesh, stakePanel.mesh, lobby.benches, lobby.glass, ...lobby.rackGuns];
+  onSave(() => { shop.redraw(); wardrobe.redraw(); stakePanel.redraw(); });
 
   // compile shaders up front to avoid hitches
   loadTxt.textContent = "Warming up shaders…"; loadBar.style.width = "96%";
@@ -696,7 +749,7 @@ async function boot() {
   equip(save.equipped);
   waste.scene.add(gun); renderer.compile(waste.scene, camera); waste.scene.remove(gun);
   renderer.compile(lobby.scene, camera);
-  enterLobby("Welcome to Shelter 7. Sit, shop, dress up — then deploy.");
+  enterLobby("Welcome to Nova Hub. Sit, shop, dress up — then stake coins at the blue portal.");
   loadBar.style.width = "100%";
   $("loading").style.display = "none";
   initVR();
@@ -727,7 +780,7 @@ boot().catch((e) => { console.error(e); loadTxt.textContent = "Failed to start: 
 window.__deadEarth = {
   get mode() { return mode; }, rig, camera, player, keys,
   look(y, p = 0) { yaw = y; pitch = p; },
-  surface() { enterSurface(); }, lobby() { enterLobby(); },
+  surface() { player.stake = player.carried = 100; enterSurface(); }, lobby() { enterLobby(); }, portal(v) { player.stakeSel = v; portalCooldown = 0; tryPortal(); }, get stakePanel() { return stakePanel; },
   third(v) { thirdPerson = v; },
   sitNearest() { const s = lobby.seats.find((x) => !x.taken); if (s) { s.aligned = s.placed = false; sitOn(s); } },
   stand() { standUp(); },

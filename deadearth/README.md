@@ -7,13 +7,24 @@ Serve the repo over HTTPS (WebXR requires a secure context), e.g. GitHub Pages, 
 Locally: `python3 -m http.server` from the repo root → `http://localhost:8000/deadearth/` (desktop preview).
 
 ## What's in it
-- **Shelter 7 lobby**: concrete hall lit by the sun through an observation window. You can sit on all 21 bench seats (point and pull the trigger). Seated survivors (NPCs), lockers, crates, and a blast door to the surface.
-- **Armory**: 6 weapons (pistol, SMG, pump shotgun, AR carbine with red dot, DMR with a scope, Arc Lancer rail gun) bought with coins.
-- **Wardrobe**: hair styles, hair colours, outfits and cloth pieces (scarf / cloak / duster coat), all bought with coins. Try things on first on the pedestal, where a floor fan blows wind at your avatar.
-  - Hair is simulated strand by strand. It responds to wind and gravity and collides with your head and shoulders.
-  - Cloth uses verlet mass-spring physics with aerodynamic wind forces and collides with your body.
-- **Surface**: a cracked dust plain, a broken highway with rusted cars, ruined buildings, toppled pylons, dead trees, tumbleweeds rolling in the wind, drifting ash and a shattered moon.
-- **Enemies**: hover drones that fire plasma bolts you can dodge or shoot down, and four-legged stalkers that walk with procedural IK and lunge at you. The waves keep getting harder. Kills pay coins.
+- **Nova Hub lobby (year 2291)**: a bright, futuristic sky lounge looking out over a living green city with flying traffic.
+  - Sittable benches (point and pull the trigger).
+  - Seated citizens and an armory.
+  - A wardrobe with a wind-fan pedestal.
+  - The **blue arena portal**.
+- **Arena stakes**: at the portal terminal you pick a stake (50–1000 coins), then walk through the portal. The coins leave your bank and travel with you.
+  - Kill a **rival raider** and you take the stake they were carrying.
+  - If a raider kills you, they take your stake plus everything you picked up.
+  - Extract alive (hold Y, or stand on the beacon) to bank it all.
+  - If you drop below 50 coins, the hub tops you back up to play again.
+- **Arena (dead Earth)**: this is the only place the planet is dead.
+  - Scenery: a cracked dust plain, a broken highway, ruins, tumbleweeds, ash, a shattered moon.
+  - Enemies: rival raiders with guns, name tags and coin stakes, plus hover drones and four-legged stalkers.
+- **Avatar**: male or female body, uncovered faces (eyes, brows, nose, lips, stubble), and an optional respirator.
+  - Default look: grey tee, short brown hair (male) or long honey-brown hair (female).
+  - Hair is simulated strand by strand and responds to wind.
+  - Cloth (scarf / cloak / duster) uses verlet physics.
+  - Customise in the wardrobe tabs: BODY · HAIR · COLOR · OUTFIT · CLOTH · GEAR. Some items cost coins.
 
 ## VR controls
 | Input | Action |
@@ -21,6 +32,7 @@ Locally: `python3 -m http.server` from the repo root → `http://localhost:8000/
 | Left stick | Move (click to sprint) |
 | Right stick | Snap turn |
 | Trigger | Use / sit / fire |
+| Walk into the blue portal | Enter the arena (choose a stake at the terminal first) |
 | A | Eject the magazine. A fresh one appears in your left hand; push it into the magwell to reload. Press A again to reload automatically. |
 | B | Switch weapon |
 | Left grip on the foregrip | Steady two-handed weapons |

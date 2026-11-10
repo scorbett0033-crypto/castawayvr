@@ -3,12 +3,18 @@
 //  - Stalker: four-legged walker with procedural IK gait that lunges at you
 import * as THREE from "three";
 import { Builder, mat4, placeBetween, rand } from "./utils.js";
+import { Avatar, HAIR_STYLES, HAIR_COLORS } from "./avatar.js";
+import { buildGun, WEAPONS } from "./weapons.js";
+import { canvasTex } from "./textures.js";
+
+const RIVAL_NAMES = ["Vex", "Kade", "Rook", "Nyx", "Juno", "Saber", "Mara", "Dax", "Ivo", "Rhea", "Kestrel", "Orin", "Talon", "Lyra", "Zane", "Echo"];
 
 const UP = new THREE.Vector3(0, 1, 0);
 
 export class EnemyManager {
-  constructor(scene, T, world, fx, sfx) {
-    this.scene = scene; this.world = world; this.fx = fx; this.sfx = sfx;
+  constructor(scene, T, world, fx, sfx, WM, wind) {
+    this.scene = scene; this.world = world; this.fx = fx; this.sfx = sfx; this.T = T; this.WM = WM; this.wind = wind;
+    this.playerStake = 100;
     this.list = []; this.bolts = [];
     this.wave = 0; this.toSpawn = []; this.spawnT = 0; this.breakT = 3; this.active = false;
     this.M = {
@@ -99,22 +105,65 @@ export class EnemyManager {
     this.bolts = []; this.toSpawn = [];
   }
   remove(e) {
+    if (e.kind === "rival") { this.scene.remove(e.av.root); this.scene.remove(e.gun); this.scene.remove(e.tag); return; }
     this.scene.remove(e.g);
     if (e.legs) e.legs.forEach((l) => { this.scene.remove(l.a); this.scene.remove(l.b); this.scene.remove(l.footM); });
   }
   nextWave() {
     this.wave++;
     const n = this.wave;
-    const drones = 2 + n, stalkers = Math.floor(n / 2);
+    const drones = 1 + Math.floor(n / 2), stalkers = Math.floor(n / 3), rivals = 1 + n;
     this.toSpawn = [];
+    for (let i = 0; i < rivals; i++) this.toSpawn.push("rival");
     for (let i = 0; i < drones; i++) this.toSpawn.push("drone");
     for (let i = 0; i < stalkers; i++) this.toSpawn.push("stalker");
     this.toSpawn.sort(() => Math.random() - 0.5);
     this.spawnT = 0.5;
     this.sfx.wave();
   }
+  spawnRival(x, z) {
+    const look = {
+      body: Math.random() < 0.5 ? "male" : "female",
+      hair: HAIR_STYLES[Math.floor(Math.random() * HAIR_STYLES.length)].id,
+      hairColor: HAIR_COLORS[Math.floor(Math.random() * HAIR_COLORS.length)].id,
+      outfit: ["scav", "nomad", "nightops", "leather", "hazmat", "tee"][Math.floor(Math.random() * 6)],
+      cloth: ["none", "scarf", "cloak", "duster"][Math.floor(Math.random() * 4)],
+      mask: Math.random() < 0.6 ? "respirator" : "none",
+    };
+    const av = new Avatar(this.T, look, { quality: 0.35 });
+    av.holdingGun = true; av.headYaw = 0;
+    av.root.position.set(x, this.world.heightAt(x, z), z);
+    av.groundY = av.root.position.y;
+    this.scene.add(av.root);
+    const pool = WEAPONS.filter((w) => w.id !== "lancer" && (w.price <= 600 + this.wave * 500));
+    const wdef = pool[Math.floor(Math.random() * pool.length)];
+    const gun = buildGun(wdef.id, this.WM);
+    gun.traverse((o) => { if (o.material && o.material.stencilWrite) o.visible = false; }); // no reticles on bots
+    this.scene.add(gun);
+    const name = RIVAL_NAMES[Math.floor(Math.random() * RIVAL_NAMES.length)];
+    const stakes = [50, 100, 100, 250, 250, 500, 1000].filter((v) => v <= this.playerStake * 2.5 + 50);
+    const stake = stakes[Math.floor(Math.random() * stakes.length)];
+    const tag = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthWrite: false }));
+    tag.scale.set(1.1, 0.27, 1);
+    this.scene.add(tag);
+    const e = { kind: "rival", av, gun, wdef, name, stake, tag, hp: 100 + this.wave * 6, dead: false, deathT: 0, reward: stake, goal: new THREE.Vector3(x, 0, z), repathT: 0, fireT: rand(1.5, 3), burst: 0, shotT: 0, yaw: 0, fallT: 0, src: { kind: "rival", name: "Raider " + name } };
+    this.updateTag(e);
+    this.list.push(e);
+    return e;
+  }
+  updateTag(e) {
+    const tex = canvasTex(512, 128, (ctx) => {
+      ctx.fillStyle = "rgba(10,6,6,0.65)"; ctx.fillRect(0, 18, 512, 92);
+      ctx.font = "800 46px Segoe UI, Arial"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillStyle = "#ff6a5a"; ctx.fillText(`RAIDER ${e.name.toUpperCase()}`, 256, 50);
+      ctx.font = "700 34px Segoe UI, Arial"; ctx.fillStyle = "#ffcf5a"; ctx.fillText(`carrying ${e.stake} ¢`, 256, 92);
+    });
+    if (e.tag.material.map) e.tag.material.map.dispose();
+    e.tag.material.map = tex; e.tag.material.needsUpdate = true;
+  }
   spawn(kind, player) {
     const a = Math.random() * Math.PI * 2, r = rand(38, 60);
+    if (kind === "rival") { const rr = rand(28, 45); return this.spawnRival(player.x + Math.cos(a) * rr, player.z + Math.sin(a) * rr); }
     const x = player.x + Math.cos(a) * r, z = player.z + Math.sin(a) * r;
     const gy = this.world.heightAt(x, z);
     const hpMul = 1 + (this.wave - 1) * 0.12;
@@ -141,7 +190,11 @@ export class EnemyManager {
     const oc = new THREE.Vector3();
     for (const e of this.list) {
       if (e.dead) continue;
-      const parts = e.kind === "drone"
+      let parts;
+      if (e.kind === "rival") {
+        const J = e.av.j, w = (j, y = 0) => j.localToWorld(new THREE.Vector3(0, y, 0));
+        parts = [[w(J.head), 0.13, true], [w(J.chest, 0.02), 0.21, false], [w(J.spine, 0.05), 0.2, false], [w(J.hips), 0.2, false], [w(J.kneeL), 0.13, false], [w(J.kneeR), 0.13, false], [w(J.hipL, -0.22), 0.11, false], [w(J.hipR, -0.22), 0.11, false]];
+      } else parts = e.kind === "drone"
         ? [[e.g.position, 0.42, false]]
         : [[e.g.position, 0.72, false], [e.core.getWorldPosition(new THREE.Vector3()), 0.16, true]];
       for (const [c, r, weak] of parts) {
@@ -160,11 +213,12 @@ export class EnemyManager {
     hits.sort((a, b) => a.dist - b.dist);
     return hits;
   }
-  // returns coins awarded if killed
+  // returns coins awarded if killed (rivals drop the stake they carry)
   damage(e, amount, point, dir) {
     if (e.dead) return 0;
     e.hp -= amount;
-    this.fx.sparks(point, dir.clone().negate(), 10, 0xffc070);
+    if (e.kind === "rival") { this.fx.sparks(point, dir.clone().negate(), 8, 0xc02818); e.repathT = 0; }
+    else this.fx.sparks(point, dir.clone().negate(), 10, 0xffc070);
     if (e.kind === "drone") e.vel.addScaledVector(dir, 2.5);
     if (e.hp <= 0) { this.kill(e, dir); return e.reward; }
     return 0;
@@ -172,6 +226,7 @@ export class EnemyManager {
   destroyBolt(bolt) { this.fx.sparks(bolt.mesh.position, UP, 14, 0xffa040); this.scene.remove(bolt.mesh); bolt.dead = true; }
   kill(e, dir) {
     e.dead = true; e.deathT = 0;
+    if (e.kind === "rival") { e.tag.visible = false; e.av.speed = 0; e.av.holdingGun = false; this.sfx.hurt(); return; }
     const p = e.g.position.clone();
     this.fx.explosion(p, e.kind === "drone" ? 1 : 1.5);
     this.sfx.explode(0, e.kind === "drone" ? 0.8 : 1.1);
@@ -196,6 +251,16 @@ export class EnemyManager {
     const tmp = new THREE.Vector3(), to = new THREE.Vector3();
     for (let i = this.list.length - 1; i >= 0; i--) {
       const e = this.list[i];
+      if (e.dead && e.kind === "rival") {
+        e.deathT += dt;
+        const k = Math.min(1, e.deathT / 0.7);
+        e.av.root.rotation.x = -k * k * Math.PI / 2;
+        e.gun.position.y = Math.max(H(e.gun.position.x, e.gun.position.z) + 0.05, e.gun.position.y - dt * 3);
+        e.gun.rotation.z = Math.min(Math.PI / 2, e.gun.rotation.z + dt * 4);
+        e.av.update(dt, this.wind.vec);
+        if (e.deathT > 9) { this.remove(e); this.list.splice(i, 1); }
+        continue;
+      }
       if (e.dead) {
         e.deathT += dt;
         if (e.kind === "drone") {
@@ -214,7 +279,8 @@ export class EnemyManager {
         if (e.deathT > 6) { this.remove(e); this.list.splice(i, 1); }
         continue;
       }
-      if (e.kind === "drone") this.updateDrone(e, dt, t, player, H, tmp, to);
+      if (e.kind === "rival") this.updateRival(e, dt, t, player, H, tmp, onHurt);
+      else if (e.kind === "drone") this.updateDrone(e, dt, t, player, H, tmp, to);
       else this.updateStalker(e, dt, t, player, H, tmp, to, onHurt);
     }
     // plasma bolts
@@ -228,12 +294,83 @@ export class EnemyManager {
       const hitHead = segDist(prev, b.mesh.position, player.head) < 0.22;
       const torso = player.head.clone(); torso.y -= 0.55;
       const hitBody = segDist(prev, b.mesh.position, torso) < 0.3;
-      if (hitHead || hitBody) { onHurt(12 + this.wave * 0.5, b.vel.clone().normalize()); this.destroyBolt(b); this.bolts.splice(i, 1); continue; }
+      if (hitHead || hitBody) { onHurt(12 + this.wave * 0.5, b.vel.clone().normalize(), { kind: "drone", name: "a scav drone" }); this.destroyBolt(b); this.bolts.splice(i, 1); continue; }
       const gy = H(b.mesh.position.x, b.mesh.position.z);
       if (b.mesh.position.y < gy || b.life <= 0) { this.fx.sparks(b.mesh.position, UP, 8, 0xff8030); this.scene.remove(b.mesh); this.bolts.splice(i, 1); continue; }
       // near-miss whoosh
       if (!b.whoosh && b.mesh.position.distanceTo(player.head) < 1.6) { b.whoosh = true; this.sfx.plasma(0); }
     }
+  }
+  updateRival(e, dt, t, player, H, tmp, onHurt) {
+    const av = e.av, root = av.root;
+    tmp.subVectors(player.feet, root.position); tmp.y = 0;
+    const dist = tmp.length();
+    // pick a new firing position around the player every few seconds
+    e.repathT -= dt;
+    if (e.repathT <= 0) {
+      const cur = Math.atan2(root.position.z - player.feet.z, root.position.x - player.feet.x);
+      const a = cur + rand(-0.9, 0.9), r = rand(9, 22);
+      e.goal.set(player.feet.x + Math.cos(a) * r, 0, player.feet.z + Math.sin(a) * r);
+      e.repathT = rand(2.2, 4.5);
+    }
+    const gx = e.goal.x - root.position.x, gz = e.goal.z - root.position.z, gd = Math.hypot(gx, gz);
+    const speed = gd > 0.6 ? (dist > 26 ? 3.6 : 2.5) : 0;
+    if (speed) { root.position.x += (gx / gd) * speed * dt; root.position.z += (gz / gd) * speed * dt; }
+    for (const c of this.world.colliders) {
+      const p = root.position, r = 0.35;
+      if (p.x > c.x0 - r && p.x < c.x1 + r && p.z > c.z0 - r && p.z < c.z1 + r) {
+        const dx0 = p.x - (c.x0 - r), dx1 = c.x1 + r - p.x, dz0 = p.z - (c.z0 - r), dz1 = c.z1 + r - p.z;
+        const m = Math.min(dx0, dx1, dz0, dz1);
+        if (m === dx0) p.x = c.x0 - r; else if (m === dx1) p.x = c.x1 + r; else if (m === dz0) p.z = c.z0 - r; else p.z = c.z1 + r;
+        e.repathT = Math.min(e.repathT, 0.3);
+      }
+    }
+    root.position.y = H(root.position.x, root.position.z);
+    av.groundY = root.position.y;
+    // always face the player (strafe-walking)
+    const want = Math.atan2(tmp.x, tmp.z);
+    let dy = want - e.yaw; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2;
+    e.yaw += THREE.MathUtils.clamp(dy, -dt * 5, dt * 5);
+    root.rotation.y = e.yaw;
+    av.speed = speed;
+    av.update(dt, this.wind.vec);
+    // gun in the right hand, aimed at the player's head
+    av.j.handR.getWorldPosition(e.gun.position);
+    e.gun.lookAt(player.head); e.gun.rotateY(Math.PI);
+    e.tag.position.set(root.position.x, root.position.y + 2.2, root.position.z);
+    // burst fire with line-of-sight checks
+    e.fireT -= dt;
+    if (e.burst > 0) {
+      e.shotT -= dt;
+      if (e.shotT <= 0) { this.rivalShot(e, player, onHurt, dist); e.burst--; e.shotT = Math.max(0.09, 60 / e.wdef.rpm); }
+    } else if (e.fireT <= 0 && dist < 45) {
+      e.burst = e.wdef.auto ? Math.floor(rand(3, 7)) : Math.floor(rand(1, 4));
+      e.fireT = rand(1.4, 3.0) - Math.min(0.8, this.wave * 0.06);
+      e.shotT = 0;
+    }
+  }
+  rivalShot(e, player, onHurt, dist) {
+    const muzzle = e.gun.userData.muzzle.getWorldPosition(new THREE.Vector3());
+    const toHead = player.head.clone().sub(muzzle);
+    const d = toHead.length(); toHead.normalize();
+    const block = this.world.raycastWorld(muzzle, toHead, d);
+    this.fx.flash(muzzle, 0xffb060, 0.4, 3);
+    this.sfx.gun(e.wdef.sound, Math.max(0.15, Math.min(0.7, 6 / (dist + 1))));
+    if (block && block.dist < d - 0.4) { this.fx.tracer(muzzle, block.point); this.fx.dust(block.point, block.normal); return; }
+    const p = THREE.MathUtils.clamp(0.52 - dist * 0.012 + this.wave * 0.015, 0.12, 0.62) * (player.moving ? 0.7 : 1) * (e.wdef.pellets > 1 && dist > 15 ? 0.4 : 1);
+    if (Math.random() < p) {
+      onHurt(Math.min(22, e.wdef.dmg * (e.wdef.pellets > 1 ? 3 : 0.45) + this.wave * 0.4), toHead, e.src);
+      this.fx.tracer(muzzle, player.head.clone().addScaledVector(toHead, -0.3));
+    } else {
+      const miss = player.head.clone().add(new THREE.Vector3(rand(-0.7, 0.7), rand(-0.4, 0.6), rand(-0.7, 0.7))).addScaledVector(toHead, 20);
+      this.fx.tracer(muzzle, miss);
+      if (Math.random() < 0.5) this.sfx.whiz();
+    }
+  }
+  // a rival who kills the player pockets the coins
+  creditKiller(src, coins) {
+    const e = this.list.find((x) => x.src === src);
+    if (e && !e.dead) { e.stake += coins; this.updateTag(e); }
   }
   updateDrone(e, dt, t, player, H, tmp, to) {
     e.orbit += e.orbitDir * dt * 0.35;
@@ -281,7 +418,7 @@ export class EnemyManager {
     if (e.lunge > 0) {
       e.lunge -= dt;
       speed = e.lunge < 0.35 ? 9 : -0.8; // wind up, then dash
-      if (e.lunge < 0.3 && e.lunge + dt >= 0.3 && dist < 2.4) onHurt(20 + this.wave, tmp.clone().normalize());
+      if (e.lunge < 0.3 && e.lunge + dt >= 0.3 && dist < 2.4) onHurt(20 + this.wave, tmp.clone().normalize(), { kind: "stalker", name: "a stalker" });
     }
     const fwd = new THREE.Vector3(Math.sin(e.yaw), 0, Math.cos(e.yaw));
     e.vel.lerp(fwd.multiplyScalar(speed), Math.min(1, dt * 4));

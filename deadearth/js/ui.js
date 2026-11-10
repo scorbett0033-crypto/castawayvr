@@ -1,7 +1,7 @@
 // In-world canvas touch panels (shop + wardrobe), wrist HUD and laser pointers.
 import * as THREE from "three";
 import { WEAPONS } from "./weapons.js";
-import { HAIR_STYLES, HAIR_COLORS, OUTFITS, CLOTH_ITEMS } from "./avatar.js";
+import { HAIR_STYLES, HAIR_COLORS, OUTFITS, CLOTH_ITEMS, BODY_TYPES, MASKS } from "./avatar.js";
 import { save, persist, trySpend } from "./save.js";
 
 const FONT = "'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
@@ -129,10 +129,12 @@ export class ShopPanel extends Panel {
 
 /* ---------------- wardrobe ---------------- */
 const TABS = [
+  { key: "body", label: "BODY", list: BODY_TYPES },
   { key: "hair", label: "HAIR", list: HAIR_STYLES },
   { key: "hairColor", label: "COLOR", list: HAIR_COLORS },
   { key: "outfit", label: "OUTFIT", list: OUTFITS },
   { key: "cloth", label: "CLOTH", list: CLOTH_ITEMS },
+  { key: "mask", label: "GEAR", list: MASKS },
 ];
 export class WardrobePanel extends Panel {
   // onPreview(look) is called whenever the try-on look changes
@@ -145,9 +147,9 @@ export class WardrobePanel extends Panel {
   }
   resetTryOn() { this.trying = { ...save.look }; this.onPreview(this.trying); this.redraw(); }
   draw(ctx, W, H) {
-    frame(ctx, W, H, "WARDROBE  //  SURVIVOR LOOK", "#41c7b9");
+    frame(ctx, W, H, "WARDROBE  //  YOUR AVATAR", "#41c7b9");
     TABS.forEach((t, i) => {
-      const x = 28 + i * 160, y = 112, w = 148, h = 60;
+      const x = 28 + i * 152, y = 112, w = 142, h = 60;
       const hov = this.button("t" + i, x, y, w, h, () => { this.tab = i; this.sfx.click(); });
       rr(ctx, x, y, w, h, 10); ctx.fillStyle = this.tab === i ? "#41c7b9" : hov ? "#26313a" : "#1a2229"; ctx.fill();
       ctx.fillStyle = this.tab === i ? "#071211" : "#cfd8df"; ctx.font = `800 24px ${FONT}`; ctx.textAlign = "center";
@@ -169,7 +171,7 @@ export class WardrobePanel extends Panel {
         ctx.beginPath(); ctx.arc(x + 54, y + 62, 30, 0, Math.PI * 2); ctx.fill();
         ctx.strokeStyle = "rgba(255,255,255,0.25)"; ctx.lineWidth = 2; ctx.stroke();
       } else {
-        ctx.fillStyle = "#41c7b9"; ctx.font = `700 46px ${FONT}`; ctx.textAlign = "center"; ctx.fillText("✂", x + 54, y + 64);
+        ctx.fillStyle = "#41c7b9"; ctx.font = `700 46px ${FONT}`; ctx.textAlign = "center"; ctx.fillText(item.icon || "✂", x + 54, y + 64);
       }
       ctx.textAlign = "left"; ctx.fillStyle = "#e8edf1"; ctx.font = `700 26px ${FONT}`;
       ctx.fillText(item.name, x + 100, y + 62);
@@ -191,7 +193,7 @@ export class WardrobePanel extends Panel {
       pending.forEach((t) => save.owned[t.key].push(this.trying[t.key]));
       save.look = { ...this.trying }; persist(); this.sfx.coin(); this.onPreview(this.trying, true);
     });
-    else bigButton(this, ctx, "act", 348, by, W - 376, bh, `NEED ${cost - save.coins} ¢ MORE — EARN COINS ON THE SURFACE`, "deny", () => this.sfx.deny());
+    else bigButton(this, ctx, "act", 348, by, W - 376, bh, `NEED ${cost - save.coins} ¢ MORE — WIN COINS IN THE ARENA`, "deny", () => this.sfx.deny());
   }
 }
 
@@ -208,7 +210,7 @@ export function makeBoard(wM, hM, pxW, pxH, draw) {
 export class WristHUD extends Panel {
   constructor() {
     super(0.13, 0.078, 320, 192);
-    this.state = { hp: 100, coins: 0, wave: 0, left: 0, ammo: 0, mag: 0, extract: 0, msg: "" };
+    this.state = { hp: 100, coins: 0, risk: -1, wave: 0, left: 0, ammo: 0, mag: 0, extract: 0, msg: "" };
     this.mesh.userData.interact = null;
     this.mesh.material.transparent = true;
     this.redraw();
@@ -227,7 +229,7 @@ export class WristHUD extends Panel {
     ctx.fillStyle = "#9fb3c4"; ctx.font = `700 20px ${FONT}`; ctx.fillText("VITALS", 20, 28);
     rr(ctx, 20, 44, W - 40, 22, 11); ctx.fillStyle = "#1d2328"; ctx.fill();
     rr(ctx, 20, 44, Math.max(22, (W - 40) * s.hp / 100), 22, 11); ctx.fillStyle = s.hp > 35 ? "#4fe08f" : "#ff4a3a"; ctx.fill();
-    ctx.fillStyle = "#ffcf5a"; ctx.font = `800 30px ${FONT}`; ctx.fillText(`${s.coins} ¢`, 20, 98);
+    ctx.fillStyle = "#ffcf5a"; ctx.font = `800 30px ${FONT}`; ctx.fillText(s.risk >= 0 ? `${s.risk} ¢ at risk` : `${s.coins} ¢`, 20, 98);
     ctx.textAlign = "right"; ctx.fillStyle = "#e8edf1"; ctx.font = `700 24px ${FONT}`;
     ctx.fillText(s.wave ? `WAVE ${s.wave} · ${s.left} left` : "", W - 20, 98);
     ctx.textAlign = "left"; ctx.fillStyle = "#cfd8df"; ctx.font = `600 20px ${FONT}`;

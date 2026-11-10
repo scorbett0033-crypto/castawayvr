@@ -299,6 +299,39 @@ function skin(seed) {
   }, 1);
 }
 
+
+function whitePanel(seed) {
+  const S = SIZE;
+  const n = field(S, 6, 5, seed), smudge = field(S, 3, 4, seed + 1), fine = field(S, 128, 2, seed + 2);
+  return makeSet(S, (i, o) => {
+    const x = i % S, y = (i / S) | 0;
+    const seam = (x % (S / 2) < 3 || y < 3) ? 1 : 0;
+    const vent = (y > S * 0.46 && y < S * 0.54 && (x % 24) < 12 && x > S * 0.6 && x < S * 0.9) ? 1 : 0;
+    const g = 0.88 + (n[i] - 0.5) * 0.04 - sm(0.6, 0.9, smudge[i]) * 0.05 + (fine[i] - 0.5) * 0.01 - seam * 0.45 - vent * 0.5;
+    o[0] = g * 0.98; o[1] = g; o[2] = g * 1.03; o[3] = 0.3 + smudge[i] * 0.15 + seam * 0.4; o[4] = -seam * 1.5 - vent + fine[i] * 0.05;
+  }, 3);
+}
+function floorTiles(seed) {
+  const S = SIZE;
+  const n = field(S, 5, 6, seed), smudge = field(S, 4, 5, seed + 1), vein = field(S, 3, 5, seed + 2, 0.6, 9);
+  return makeSet(S, (i, o) => {
+    const x = i % S, y = (i / S) | 0;
+    const grout = (x % (S / 2) < 2 || y % (S / 2) < 2) ? 1 : 0;
+    const v = sm(0.48, 0.5, vein[i]) * sm(0.52, 0.5, vein[i]) * 4;
+    const g = 0.22 + (n[i] - 0.5) * 0.05 + v * 0.05 + grout * 0.25;
+    o[0] = g; o[1] = g * 1.02; o[2] = g * 1.07; o[3] = 0.1 + sm(0.55, 0.85, smudge[i]) * 0.25 + grout * 0.5; o[4] = -grout * 1.2;
+  }, 2);
+}
+function grass(seed) {
+  const S = SIZE;
+  const n = field(S, 6, 6, seed), fine = field(S, 160, 2, seed + 1), dry = field(S, 3, 4, seed + 2);
+  return makeSet(S, (i, o) => {
+    const d = sm(0.55, 0.8, dry[i]);
+    const g = 0.6 + (n[i] - 0.5) * 0.3 + (fine[i] - 0.5) * 0.35;
+    o[0] = (0.2 + d * 0.25) * g; o[1] = (0.42 + d * 0.05) * g; o[2] = 0.12 * g; o[3] = 0.95; o[4] = fine[i] + n[i] * 0.5;
+  }, 4);
+}
+
 export async function generateTextures(onProgress = () => {}) {
   const jobs = [
     ["concrete", () => concrete(11)],
@@ -316,6 +349,9 @@ export async function generateTextures(onProgress = () => {}) {
     ["painted", () => paintedMetal(111)],
     ["hair", () => hairCap(121)],
     ["skin", () => skin(131)],
+    ["panel", () => whitePanel(141)],
+    ["tiles", () => floorTiles(151)],
+    ["grass", () => grass(161)],
   ];
   const T = {};
   for (let k = 0; k < jobs.length; k++) {
