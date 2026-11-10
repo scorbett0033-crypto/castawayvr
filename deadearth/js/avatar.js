@@ -461,6 +461,90 @@ export function makeGlove(material, side = 1) {
   return g;
 }
 
+
+/* ---------------- anatomy: sculpted torso + muscle-shaped limbs ---------------- */
+const cosInterp = (prof, y, k) => {
+  if (y <= prof[0][0]) return prof[0][k];
+  for (let i = 0; i < prof.length - 1; i++) {
+    const a = prof[i], b = prof[i + 1];
+    if (y <= b[0]) { const t = (y - a[0]) / (b[0] - a[0]); const u = (1 - Math.cos(t * Math.PI)) / 2; return a[k] + (b[k] - a[k]) * u; }
+  }
+  return prof[prof.length - 1][k];
+};
+const gauss = (x, w) => Math.exp(-(x * x) / (w * w));
+// Torso in spine-joint space (y up from the spine joint, +z = front).
+function sculptTorso(F) {
+  // [y, half-width, half-depth]: waist -> ribs -> chest -> armpits -> shoulder line -> trapezius slope -> neck base
+  const prof = F
+    ? [[-0.05, 0.128, 0.092], [0.04, 0.118, 0.086], [0.13, 0.126, 0.09], [0.21, 0.14, 0.1], [0.28, 0.152, 0.1], [0.33, 0.16, 0.092], [0.365, 0.152, 0.08], [0.395, 0.112, 0.064], [0.425, 0.06, 0.05]]
+    : [[-0.05, 0.142, 0.1], [0.04, 0.136, 0.094], [0.13, 0.15, 0.104], [0.21, 0.166, 0.112], [0.28, 0.182, 0.112], [0.33, 0.192, 0.102], [0.37, 0.18, 0.084], [0.405, 0.125, 0.068], [0.435, 0.066, 0.054]];
+  const RINGS = 34, SEG = 48;
+  const y0 = prof[0][0], y1 = prof[prof.length - 1][0];
+  const pos = [], uv = [], idx = [];
+  for (let i = 0; i < RINGS; i++) {
+    const t = i / (RINGS - 1), y = y0 + (y1 - y0) * t;
+    const W = cosInterp(prof, y, 1), D = cosInterp(prof, y, 2);
+    for (let j = 0; j <= SEG; j++) {
+      const th = (j / SEG) * Math.PI * 2, c = Math.cos(th), sn = Math.sin(th);
+      let x = W * Math.sign(c) * Math.pow(Math.abs(c), 0.8);
+      let z = D * Math.sign(sn) * Math.pow(Math.abs(sn), 0.85);
+      const ax = Math.abs(x);
+      if (sn > 0) {
+        if (F) z += 0.034 * gauss(ax - 0.058, 0.05) * gauss(y - 0.255, 0.055) * sn;             // bust
+        else z += 0.02 * gauss(ax - 0.07, 0.065) * gauss(y - 0.275, 0.05) * sn;               // pectorals
+        z -= 0.006 * gauss(x, 0.012) * gauss(y - 0.27, 0.08) * sn;                             // sternum line
+        z += 0.008 * gauss(ax - 0.06, 0.05) * gauss(y - 0.37, 0.018) * sn;                     // collarbones
+        z += (F ? 0.004 : 0.008) * gauss(y - 0.08, 0.06) * gauss(x, 0.08) * sn;               // belly
+      } else {
+        z -= 0.012 * gauss(ax - 0.075, 0.05) * gauss(y - 0.3, 0.06) * -sn;                     // shoulder blades
+        z += 0.006 * gauss(x, 0.012) * gauss(y - 0.2, 0.2) * -sn;                              // spine groove
+      }
+      x += (F ? -0.004 : 0.006) * gauss(y - 0.2, 0.08) * Math.sign(c) * Math.abs(c);          // lats (V-taper)
+      pos.push(x, y, z); uv.push(j / SEG, t);
+    }
+  }
+  for (let i = 0; i < RINGS - 1; i++) for (let j = 0; j < SEG; j++) {
+    const a = i * (SEG + 1) + j, b = a + SEG + 1;
+    idx.push(a, a + 1, b, a + 1, b + 1, b);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+// Pelvis/hips band in hips-joint space: waist -> hip bones -> seat, closed at the crotch.
+function sculptPelvis(F) {
+  const prof = F
+    ? [[0.11, 0.128, 0.092], [0.05, 0.15, 0.098], [-0.02, 0.172, 0.108], [-0.08, 0.168, 0.106], [-0.13, 0.13, 0.09], [-0.165, 0.05, 0.05]]
+    : [[0.11, 0.14, 0.098], [0.05, 0.146, 0.098], [-0.02, 0.158, 0.102], [-0.08, 0.152, 0.1], [-0.13, 0.118, 0.088], [-0.165, 0.045, 0.045]];
+  const RINGS = 16, SEG = 40, y0 = prof[0][0], y1 = prof[prof.length - 1][0];
+  const pos = [], uv = [], idx = [];
+  for (let i = 0; i < RINGS; i++) {
+    const t = i / (RINGS - 1), y = y0 + (y1 - y0) * t, W = cosInterp(prof, y, 1), D = cosInterp(prof, y, 2);
+    for (let j = 0; j <= SEG; j++) {
+      const th = (j / SEG) * Math.PI * 2, c = Math.cos(th), sn = Math.sin(th);
+      let z = D * Math.sign(sn) * Math.pow(Math.abs(sn), 0.85);
+      if (sn < 0) z -= 0.02 * gauss(Math.abs(c) - 0.5, 0.35) * gauss(y + 0.07, 0.05) * -sn; // seat
+      pos.push(W * Math.sign(c) * Math.pow(Math.abs(c), 0.8), y, z); uv.push(j / SEG * 2, t);
+    }
+  }
+  for (let i = 0; i < RINGS - 1; i++) for (let j = 0; j < SEG; j++) { const a = i * (SEG + 1) + j, b = a + SEG + 1; idx.push(a, b, a + 1, a + 1, b, b + 1); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx); g.computeVertexNormals();
+  return g;
+}
+// Limb from a [y, radius] profile (y descending from the joint), slightly flattened front-to-back.
+function limbGeo(prof, flat = 0.92, seg = 18) {
+  const pts = prof.slice().sort((a, b) => a[0] - b[0]).map(([y, r]) => new THREE.Vector2(r, y));
+  const g = new THREE.LatheGeometry(pts, seg);
+  g.scale(1, 1, flat);
+  return g;
+}
+
 /* ---------------- avatar ---------------- */
 export class Avatar {
   constructor(textures, look = DEFAULT_LOOK, { quality = 1 } = {}) {
@@ -528,32 +612,32 @@ export class Avatar {
     const F = this.body === "female";
     this.root.scale.setScalar(F ? 0.95 : 1);
     const hips = this.joint(this.root, "hips", 0, 0.97, 0);
-    const pelvis = new THREE.Mesh(new THREE.CapsuleGeometry(0.13, 0.12, 4, 10), M.pants);
-    pelvis.rotation.z = Math.PI / 2; pelvis.scale.set(1, F ? 1.1 : 1, F ? 0.84 : 0.78); pelvis.castShadow = true;
+    const pelvis = new THREE.Mesh(sculptPelvis(F), M.pants);
+    pelvis.castShadow = true; pelvis.receiveShadow = true;
     hips.add(pelvis);
-    const belt = new THREE.Mesh(new THREE.TorusGeometry(0.165, 0.018, 6, 24), M.boots);
-    belt.rotation.x = Math.PI / 2; belt.scale.set(1, 0.78, 1); belt.position.y = 0.05;
+    const belt = new THREE.Mesh(new THREE.TorusGeometry(F ? 0.142 : 0.146, 0.012, 6, 40), M.boots);
+    belt.rotation.x = Math.PI / 2; belt.scale.set(1, 0.69, 1); belt.position.y = 0.075;
     hips.add(belt);
     const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.035, 0.01), M.metal);
-    buckle.position.set(0, 0.05, 0.128); hips.add(buckle);
+    buckle.position.set(0, 0.075, F ? 0.1 : 0.106); hips.add(buckle);
     const spine = this.joint(hips, "spine", 0, 0.08, 0);
-    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.15, 0.22, 6, 14), M.jacket);
-    torso.position.y = 0.17; torso.scale.set(F ? 1.02 : 1.18, 1, F ? 0.72 : 0.74); torso.castShadow = true; torso.receiveShadow = true;
+    const torso = new THREE.Mesh(sculptTorso(F), M.jacket);
+    torso.castShadow = true; torso.receiveShadow = true;
     spine.add(torso);
     const chest = this.joint(spine, "chest", 0, 0.22, 0);
     // jacket details
     const crew = new THREE.Mesh(new THREE.TorusGeometry(0.062, 0.012, 6, 20), M.teeCollar);
-    crew.rotation.x = Math.PI / 2 + 0.2; crew.position.set(0, 0.185, 0.008); crew.scale.set(1.1, 1, 1); chest.add(crew);
+    crew.rotation.x = Math.PI / 2 + 0.15; crew.position.set(0, 0.198, 0.006); crew.scale.set(F ? 0.98 : 1.08, F ? 0.86 : 0.9, 1); chest.add(crew);
     const collar = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.028, 8, 20), M.detail);
-    collar.rotation.x = Math.PI / 2; collar.position.y = 0.2; chest.add(collar);
+    collar.rotation.x = Math.PI / 2; collar.position.y = 0.205; collar.scale.set(1.05, 0.85, 1); chest.add(collar);
     for (const sx of [-1, 1]) {
       const pocket = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.08, 0.025), M.detail);
-      pocket.position.set(0.08 * sx, 0.03, 0.105); pocket.rotation.x = -0.12; chest.add(pocket);
+      pocket.position.set(0.075 * sx, 0.04, F ? 0.118 : 0.128); pocket.rotation.x = -0.12; chest.add(pocket);
       const flap = new THREE.Mesh(new THREE.BoxGeometry(0.074, 0.025, 0.03), M.detailAccent);
-      flap.position.set(0.08 * sx, 0.075, 0.108); chest.add(flap);
+      flap.position.set(0.075 * sx, 0.085, F ? 0.122 : 0.132); chest.add(flap);
     }
     const zip = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.36, 0.01), M.zip);
-    zip.position.set(0, -0.06, 0.112); chest.add(zip);
+    zip.position.set(0, -0.06, F ? 0.1 : 0.118); chest.add(zip);
     const pack = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.3, 0.1), M.accent);
     pack.position.set(0, -0.05, -0.15); pack.castShadow = true; chest.add(pack);
     this.packMesh = pack;
@@ -641,12 +725,22 @@ export class Avatar {
 
     for (const sx of [1, -1]) {
       const s = sx > 0 ? "L" : "R";
-      const sh = this.joint(chest, "shoulder" + s, (F ? 0.175 : 0.2) * sx, 0.15, 0);
-      const pad = new THREE.Mesh(new THREE.SphereGeometry(F ? 0.058 : 0.068, 12, 10), M.detail);
-      pad.scale.set(1.1, 0.9, 1); sh.add(pad);
-      this.limb(sh, M.jacket, F ? 0.045 : 0.052, 0.21);
+      const sh = this.joint(chest, "shoulder" + s, (F ? 0.165 : 0.188) * sx, 0.155, 0);
+      const k = F ? 0.86 : 1;
+      // deltoid cap: rounds the shoulder and blends the arm into the torso
+      const delt = new THREE.Mesh(new THREE.SphereGeometry(0.052 * k, 20, 14), M.jacket);
+      delt.scale.set(0.88, 1.3, 1.02); delt.position.set(-0.006 * sx, -0.068, 0.0); delt.castShadow = true; sh.add(delt);
+      const pad = new THREE.Mesh(new THREE.SphereGeometry(0.066 * k, 14, 10), M.detail);
+      pad.scale.set(0.95, 0.6, 1.0); pad.position.set(0.0, -0.035, 0); sh.add(pad);
+      // upper arm: sleeve on top, biceps/triceps below (skin on a T-shirt)
+      const up1 = new THREE.Mesh(limbGeo([[0.0, 0.05 * k], [-0.06, 0.054 * k], [-0.13, 0.052 * k], [-0.15, 0.05 * k]]), M.jacket);
+      up1.castShadow = true; sh.add(up1);
+      const up2 = new THREE.Mesh(limbGeo([[-0.13, 0.048 * k], [-0.18, 0.05 * k], [-0.23, 0.044 * k], [-0.29, 0.037 * k]]), M.sleeve);
+      up2.castShadow = true; sh.add(up2);
+      const elbowCap = new THREE.Mesh(new THREE.SphereGeometry(0.037 * k, 12, 10), M.sleeve); elbowCap.position.y = -0.285; sh.add(elbowCap);
       const el = this.joint(sh, "elbow" + s, 0, -0.28, 0);
-      this.limb(el, M.sleeve, F ? 0.038 : 0.044, 0.19, [1, 1, 1]);
+      const fore = new THREE.Mesh(limbGeo([[0.01, 0.037 * k], [-0.05, 0.043 * k], [-0.12, 0.039 * k], [-0.2, 0.029 * k], [-0.25, 0.026 * k]], 0.86), M.sleeve);
+      fore.castShadow = true; el.add(fore);
       const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.03, 10), M.cuff);
       cuff.position.y = -0.22; el.add(cuff);
       const hand = this.joint(el, "hand" + s, 0, -0.27, 0);
