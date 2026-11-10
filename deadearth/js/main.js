@@ -1,0 +1,736 @@
+// DEAD EARTH — VR survival shooter.
+// Shelter lobby (benches, armory, wardrobe) + the dead planet's surface.
+import * as THREE from "three";
+import { generateTextures, canvasTex } from "./textures.js";
+import { Wind } from "./sky.js";
+import { Avatar, makeGlove } from "./avatar.js";
+import { WEAPONS, weaponById, buildGun, GunState, makeWeaponMaterials } from "./weapons.js";
+import { buildLobby } from "./lobby.js";
+import { buildWasteland, ARENA_R } from "./wasteland.js";
+import { EnemyManager } from "./enemies.js";
+import { FX } from "./fx.js";
+import { Sfx } from "./audio.js";
+import { save, persist, addCoins, onSave } from "./save.js";
+import { ShopPanel, WardrobePanel, WristHUD, Panel, makeLaser } from "./ui.js";
+
+const $ = (id) => document.getElementById(id);
+const loadBar = $("loadbar"), loadTxt = $("loadtxt");
+
+/* ================= renderer / camera / rig ================= */
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance", stencil: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.xr.enabled = true;
+renderer.xr.setReferenceSpaceType("local-floor");
+renderer.xr.setFoveation(0.6);
+$("app").appendChild(renderer.domElement);
+
+const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.03, 2000);
+const rig = new THREE.Group();
+rig.add(camera);
+addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+/* camera-attached overlays (hurt vignette + fade) */
+function cameraShell(color) {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(0.25, 24, 16), new THREE.ShaderMaterial({
+    transparent: true, depthTest: false, depthWrite: false, side: THREE.BackSide,
+    uniforms: { uColor: { value: new THREE.Color(color) }, uAmt: { value: 0 }, uEdge: { value: color === 0 ? 0 : 1 } },
+    vertexShader: "varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
+    fragmentShader: "uniform vec3 uColor; uniform float uAmt, uEdge; varying vec3 vP; void main(){ float e = smoothstep(0.15, 1.0, 1.0 + vP.z / 0.25); float a = mix(1.0, e, uEdge) * uAmt; gl_FragColor = vec4(uColor, a); }",
+  }));
+  m.renderOrder = 999; m.frustumCulled = false;
+  camera.add(m);
+  return m.material.uniforms.uAmt;
+}
+const hurtAmt = cameraShell(0x9a0000);
+const fadeAmt = cameraShell(0x000000);
+
+/* ================= game state ================= */
+const sfx = new Sfx();
+const fx = new FX();
+let T, WM, lobby, waste, enemies, shop, wardrobe, deployPanel, wrist, playerAvatar;
+let mode = "loading";
+let scene = null;
+const surfaceWind = new Wind(5.5, 0.7);
+const player = { hp: 100, regenT: 0, seated: null, dead: false, extractT: 0, beaconT: 0, kills: 0, runCoins: 0 };
+const gunStates = new Map();
+let gun = null, gunState = null, gunId = null;
+const gunCache = new Map();
+const tmpV = new THREE.Vector3(), tmpV2 = new THREE.Vector3(), tmpQ = new THREE.Quaternion();
+let fade = { t: 0, dir: 0, then: null };
+
+/* ================= XR hands ================= */
+const hands = { left: null, right: null };
+const gloveMat = new THREE.MeshStandardMaterial({ color: 0x2b2723, roughness: 0.7 });
+for (let i = 0; i < 2; i++) {
+  const controller = renderer.xr.getController(i);
+  const grip = renderer.xr.getControllerGrip(i);
+  rig.add(controller, grip);
+  const hand = { controller, grip, source: null, prev: [], laser: makeLaser(), glove: null, carryMag: null, turnReady: true };
+  controller.add(hand.laser);
+  controller.addEventListener("connected", (e) => {
+    hand.source = e.data;
+    const side = e.data.handedness === "left" ? -1 : 1;
+    hand.side = e.data.handedness;
+    if (!hand.glove) {
+      hand.glove = makeGlove(gloveMat, side);
+      hand.glove.rotation.set(0.2, 0, (Math.PI / 2) * side);
+      hand.glove.position.set(0, -0.01, 0.04);
+      grip.add(hand.glove);
+    }
+    if (e.data.handedness === "left" || e.data.handedness === "right") hands[e.data.handedness] = hand;
+  });
+  controller.addEventListener("disconnected", () => { if (hand.side) hands[hand.side] = null; hand.source = null; });
+}
+function pad(hand) { return hand && hand.source && hand.source.gamepad; }
+function btn(hand, i) { const g = pad(hand); return !!(g && g.buttons[i] && g.buttons[i].pressed); }
+function btnVal(hand, i) { const g = pad(hand); return g && g.buttons[i] ? g.buttons[i].value : 0; }
+function pressed(hand, i) { return btn(hand, i) && !hand.prev[i]; }
+function stick(hand) {
+  const g = pad(hand); if (!g) return [0, 0];
+  const a = g.axes;
+  const x = a.length >= 4 ? a[2] : a[0] || 0, y = a.length >= 4 ? a[3] : a[1] || 0;
+  return [Math.abs(x) > 0.15 ? x : 0, Math.abs(y) > 0.15 ? y : 0];
+}
+function latchButtons() { for (const h of [hands.left, hands.right]) { const g = pad(h); if (g) h.prev = g.buttons.map((b) => b.pressed); } }
+function haptic(hand, intensity, ms) {
+  const g = pad(hand);
+  const a = g && (g.hapticActuators?.[0] || g.vibrationActuator);
+  try { if (a?.pulse) a.pulse(intensity, ms); else if (a?.playEffect) a.playEffect("dual-rumble", { duration: ms, strongMagnitude: intensity, weakMagnitude: intensity }); } catch { /* not supported */ }
+}
+
+/* ================= desktop controls ================= */
+const keys = {};
+let yaw = 0, pitch = 0, mouseDown = false, mouseClicked = false, thirdPerson = false;
+addEventListener("keydown", (e) => {
+  keys[e.code] = true;
+  if (e.code === "KeyV") thirdPerson = !thirdPerson;
+  if (e.code === "KeyE") desktopUse();
+  if (e.code === "KeyR" && mode === "surface" && gunState?.startTimedReload()) { sfx.magOut(); gun.userData.mag.visible = false; }
+  if (/^Digit[1-6]$/.test(e.code)) { const w = WEAPONS[+e.code.slice(5) - 1]; if (w && save.weapons.includes(w.id)) equip(w.id); }
+  if (e.code === "KeyL" && mode === "surface") goLobby("Extracted.");
+});
+addEventListener("keyup", (e) => (keys[e.code] = false));
+renderer.domElement.addEventListener("mousedown", (e) => {
+  sfx.init();
+  if (document.pointerLockElement !== renderer.domElement) { renderer.domElement.requestPointerLock?.(); return; }
+  if (e.button === 0) { mouseDown = true; mouseClicked = true; }
+});
+addEventListener("mouseup", () => (mouseDown = false));
+addEventListener("mousemove", (e) => {
+  if (document.pointerLockElement !== renderer.domElement || renderer.xr.isPresenting) return;
+  yaw -= e.movementX * 0.0022;
+  pitch = THREE.MathUtils.clamp(pitch - e.movementY * 0.0022, -1.45, 1.45);
+});
+addEventListener("wheel", (e) => {
+  if (mode !== "surface") return;
+  const owned = WEAPONS.filter((w) => save.weapons.includes(w.id));
+  const i = owned.findIndex((w) => w.id === gunId);
+  equip(owned[(i + (e.deltaY > 0 ? 1 : owned.length - 1)) % owned.length].id);
+});
+
+/* ================= weapons ================= */
+function equip(id) {
+  if (gun) gun.parent?.remove(gun);
+  gunId = id;
+  if (!gunCache.has(id)) gunCache.set(id, buildGun(id, WM));
+  gun = gunCache.get(id);
+  if (!gunStates.has(id)) gunStates.set(id, new GunState(weaponById(id)));
+  gunState = gunStates.get(id);
+  gun.userData.mag.visible = !gunState.magOut;
+  gun.userData.setAmmo(gunState.ammo, gunState.def.mag);
+  if (mode === "surface") scene.add(gun);
+  if (hands.left?.carryMag) { hands.left.carryMag.parent?.remove(hands.left.carryMag); hands.left.carryMag = null; }
+  if (gunState.magOut && gunState.reloadT <= 0) giveLeftMag();
+  sfx.click();
+}
+function giveLeftMag() {
+  const L = hands.left;
+  if (!L || !renderer.xr.isPresenting) return;
+  const m = gun.userData.magBuilder();
+  m.position.set(0, -0.02, -0.02); m.rotation.set(0, 0, 0); m.visible = true;
+  L.grip.add(m); L.carryMag = m;
+}
+const dropped = [];
+function ejectMag() {
+  if (!gunState || gunState.magOut || gunState.reloadT > 0) return;
+  gunState.magOut = true;
+  const m = gun.userData.magBuilder();
+  gun.userData.mag.getWorldPosition(m.position);
+  gun.getWorldQuaternion(m.quaternion);
+  m.userData.vel = new THREE.Vector3(0, -1, 0); m.userData.life = 6;
+  scene.add(m); dropped.push(m);
+  gun.userData.mag.visible = false;
+  gunState.ammo = 0;
+  gun.userData.setAmmo(0, gunState.def.mag);
+  sfx.magOut();
+  haptic(hands.right, 0.4, 40);
+  giveLeftMag();
+}
+
+const raycaster = new THREE.Raycaster();
+const shotDir = new THREE.Vector3(), muzzleW = new THREE.Vector3();
+function fire() {
+  const def = gunState.def;
+  gunState.fire();
+  gun.userData.setAmmo(gunState.ammo, def.mag);
+  const muzzle = gun.userData.muzzle;
+  muzzle.getWorldPosition(muzzleW);
+  // aim ray: VR = barrel, desktop = screen centre
+  const origin = new THREE.Vector3(), baseDir = new THREE.Vector3();
+  if (renderer.xr.isPresenting) { origin.copy(muzzleW); baseDir.set(0, 0, -1).applyQuaternion(gunAimQuat); }
+  else { camera.getWorldPosition(origin); camera.getWorldDirection(baseDir); }
+  const spread = THREE.MathUtils.degToRad(def.spread * (1 + gunState.bloom * 1.5)) * (twoHanded ? 0.6 : 1);
+  let gotKill = false, hitSomething = false;
+  for (let p = 0; p < def.pellets; p++) {
+    shotDir.copy(baseDir);
+    const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * spread;
+    const ortho1 = tmpV.set(0, 1, 0).cross(shotDir).normalize(), ortho2 = tmpV2.crossVectors(shotDir, ortho1);
+    shotDir.addScaledVector(ortho1, Math.cos(a) * r).addScaledVector(ortho2, Math.sin(a) * r).normalize();
+    const world = waste.raycastWorld(origin, shotDir, def.range);
+    const worldDist = world ? world.dist : def.range;
+    const hits = enemies.raycast(origin, shotDir, worldDist);
+    let end = origin.clone().addScaledVector(shotDir, worldDist);
+    let stopped = false;
+    for (const h of hits) {
+      if (h.bolt) { if (!h.bolt.dead) { enemies.destroyBolt(h.bolt); addReward(5, h.point); } end = h.point; stopped = !def.pierce; if (stopped) break; continue; }
+      const reward = enemies.damage(h.enemy, def.dmg * (h.weak ? 2.5 : 1), h.point, shotDir);
+      hitSomething = true;
+      if (reward) { gotKill = true; player.kills++; save.stats.kills++; addReward(reward, h.point); }
+      if (!def.pierce) { end = h.point; stopped = true; break; }
+    }
+    if (!stopped && world) {
+      if (world.surface === "metal") { fx.sparks(world.point, world.normal, 10); if (Math.random() < 0.3) sfx.ricochet(); }
+      else if (world.surface === "soft") fx.dust(world.point, world.normal);
+      else { fx.dust(world.point, world.normal); fx.sparks(world.point, world.normal, 4, 0xd0a070); }
+      if (world.surface !== "soft") fx.decal(world.point, world.normal);
+    }
+    if (def.id === "lancer") fx.rail(muzzleW, end);
+    else if (p % 3 === 0) fx.tracer(muzzleW, end, def.id === "dmr" ? 0xffe8c0 : 0xffc080);
+  }
+  if (hitSomething) sfx.hit();
+  fx.muzzle(muzzle);
+  fx.flash(muzzleW, def.id === "lancer" ? 0x60f0ff : 0xffb060, def.id === "shotgun" ? 0.9 : 0.5);
+  if (def.id !== "lancer") {
+    const ej = gun.userData.eject.getWorldPosition(new THREE.Vector3());
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(gun.quaternion);
+    fx.casing(ej, right.multiplyScalar(2 + Math.random()).add(new THREE.Vector3(0, 1.8, 0)));
+  }
+  sfx.gun(def.sound);
+  haptic(hands.right, Math.min(1, 0.35 + def.recoil * 3), def.id === "shotgun" || def.id === "dmr" || def.id === "lancer" ? 90 : 35);
+  if (twoHanded) haptic(hands.left, 0.3, 30);
+  if (!renderer.xr.isPresenting) pitch += def.recoil * 0.25;
+  if (gotKill) haptic(hands.right, 0.8, 60);
+}
+
+/* floating "+25 ¢" rewards */
+const popTexCache = new Map();
+const pops = [];
+function addReward(n, pos) {
+  addCoins(n); player.runCoins += n; sfx.coin();
+  const key = `+${n} ¢`;
+  if (!popTexCache.has(key)) popTexCache.set(key, canvasTex(256, 96, (ctx) => {
+    ctx.font = "800 64px Segoe UI, Arial"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.lineWidth = 8; ctx.strokeStyle = "rgba(0,0,0,0.7)"; ctx.strokeText(key, 128, 48);
+    ctx.fillStyle = "#ffd25a"; ctx.fillText(key, 128, 48);
+  }));
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: popTexCache.get(key), depthTest: false, transparent: true, toneMapped: false }));
+  s.position.copy(pos); s.scale.set(1.2, 0.45, 1); s.renderOrder = 50; s.userData.life = 1.4;
+  scene.add(s); pops.push(s);
+}
+
+/* ================= transitions ================= */
+function startFade(then) { fade = { t: 0, dir: 1, then }; }
+function placeRig(pos, yawAngle) {
+  rig.position.copy(pos);
+  rig.rotation.set(0, renderer.xr.isPresenting ? yawAngle : 0, 0);
+  yaw = yawAngle; pitch = 0;
+}
+function setScene(s) {
+  scene = s;
+  s.add(rig);
+  fx.attach(s);
+  if (playerAvatar) s.add(playerAvatar.root);
+}
+function enterLobby(msg) {
+  mode = "lobby";
+  if (gun) gun.parent?.remove(gun);
+  enemies.clear();
+  enemies.active = false;
+  dropped.forEach((m) => m.parent?.remove(m)); dropped.length = 0;
+  pops.forEach((p) => p.parent?.remove(p)); pops.length = 0;
+  if (hands.left?.carryMag) { hands.left.carryMag.parent?.remove(hands.left.carryMag); hands.left.carryMag = null; }
+  setScene(lobby.scene);
+  placeRig(lobby.spawn.pos, lobby.spawn.yaw);
+  lobby.closeDoor();
+  player.hp = 100; player.dead = false; player.seated = null;
+  gunStates.forEach((g) => { g.ammo = g.def.mag; g.magOut = false; g.reloadT = 0; });
+  fx.heightAt = () => 0;
+  shop.redraw(); wardrobe.redraw();
+  toast(msg || "Welcome to Shelter 7.");
+  playerAvatar.resetSim();
+}
+function enterSurface() {
+  mode = "surface";
+  wardrobe.resetTryOn();
+  setScene(waste.scene);
+  placeRig(waste.spawn.pos, 0);
+  fx.heightAt = waste.heightAt;
+  player.hp = 100; player.dead = false; player.seated = null; player.kills = 0; player.runCoins = 0; player.extractT = 0; player.beaconT = 0;
+  save.stats.runs++; persist();
+  equip(save.equipped);
+  enemies.startRun();
+  playerAvatar.resetSim();
+  toast("Hostiles inbound. Hold Y or stand on the beacon to extract.");
+}
+function goLobby(msg) {
+  if (fade.dir) return;
+  if (enemies.wave > save.stats.bestWave) { save.stats.bestWave = enemies.wave; persist(); }
+  const summary = `${msg} Wave ${enemies.wave} · ${player.kills} kills · +${player.runCoins} ¢`;
+  startFade(() => enterLobby(summary));
+}
+function deploy() {
+  if (fade.dir) return;
+  lobby.openDoor();
+  deployPanel.armed = true; deployPanel.redraw();
+  setTimeout(() => startFade(() => { enterSurface(); deployPanel.armed = false; deployPanel.redraw(); }), 1700);
+}
+
+/* ================= HUD (desktop) ================= */
+let toastT = 0;
+function toast(s) { $("toast").textContent = s; $("toast").style.opacity = 1; toastT = 4; if (wrist) wrist.set({ msg: s.slice(0, 28) }); }
+function updateDomHud(dt) {
+  toastT -= dt; if (toastT < 0) $("toast").style.opacity = 0;
+  const hud = $("hud");
+  if (renderer.xr.isPresenting || mode === "loading") { hud.style.display = "none"; return; }
+  hud.style.display = "block";
+  $("hp").style.width = player.hp + "%";
+  $("hp").style.background = player.hp > 35 ? "#4fe08f" : "#ff4a3a";
+  $("coins").textContent = `${save.coins.toLocaleString()} ¢`;
+  $("ammo").textContent = mode === "surface" && gunState ? `${gunState.def.name}  ${gunState.reloadT > 0 ? "RELOADING" : gunState.ammo + " / " + gunState.def.mag}` : "";
+  $("wave").textContent = mode === "surface" ? (enemies.wave === 0 || enemies.remaining() === 0 ? `WAVE ${enemies.wave + 1} INCOMING…` : `WAVE ${enemies.wave} · ${enemies.remaining()} hostiles`) : player.seated ? "Seated — press E to stand" : "";
+  $("prompt").textContent = desktopPrompt;
+  $("cross").style.display = document.pointerLockElement ? "block" : "none";
+}
+let desktopPrompt = "";
+
+/* ================= player movement ================= */
+const headW = new THREE.Vector3();
+function headLocalYaw() { const e = new THREE.Euler().setFromQuaternion(camera.quaternion, "YXZ"); return e.y; }
+function collide(px, pz, r, list) {
+  for (const c of list) {
+    if (px > c.x0 - r && px < c.x1 + r && pz > c.z0 - r && pz < c.z1 + r) {
+      const dx0 = px - (c.x0 - r), dx1 = c.x1 + r - px, dz0 = pz - (c.z0 - r), dz1 = c.z1 + r - pz;
+      const m = Math.min(dx0, dx1, dz0, dz1);
+      if (m === dx0) px = c.x0 - r; else if (m === dx1) px = c.x1 + r; else if (m === dz0) pz = c.z0 - r; else pz = c.z1 + r;
+    }
+  }
+  return [px, pz];
+}
+function world() { return mode === "lobby" ? lobby : waste; }
+function moveAndCollide(dx, dz) {
+  const W = world();
+  camera.getWorldPosition(headW);
+  let nx = headW.x + dx, nz = headW.z + dz;
+  [nx, nz] = collide(nx, nz, 0.28, W.colliders);
+  if (W.bounds) { nx = THREE.MathUtils.clamp(nx, W.bounds.x0, W.bounds.x1); nz = THREE.MathUtils.clamp(nz, W.bounds.z0, W.bounds.z1); }
+  if (mode === "surface") {
+    const d = Math.hypot(nx, nz);
+    if (d > ARENA_R) { nx *= ARENA_R / d; nz *= ARENA_R / d; if (toastT < 0) toast("The ash storm is too thick beyond here."); }
+  }
+  rig.position.x += nx - headW.x; rig.position.z += nz - headW.z;
+  rig.position.y = W.heightAt(nx, nz);
+}
+function sitOn(seat) {
+  player.seated = seat; seat.taken = true;
+  if (!renderer.xr.isPresenting) { yaw = seat.yaw + Math.PI; pitch = -0.05; }
+  sfx.click();
+}
+function standUp() {
+  const s = player.seated; if (!s) return;
+  s.taken = false; player.seated = null;
+  const fwd = new THREE.Vector3(Math.sin(s.yaw), 0, Math.cos(s.yaw));
+  camera.getWorldPosition(headW);
+  const target = s.pos.clone().addScaledVector(fwd, 0.7);
+  rig.position.x += target.x - headW.x; rig.position.z += target.z - headW.z; rig.position.y = 0;
+}
+function updateSeated(dt) {
+  const s = player.seated;
+  if (renderer.xr.isPresenting) {
+    // keep the real head over the seat, at seated eye height, facing the bench direction once
+    if (!s.aligned) { rig.rotation.y = s.yaw + Math.PI - headLocalYaw(); s.aligned = true; rig.updateMatrixWorld(); }
+    camera.getWorldPosition(headW);
+    const fwd = tmpV.set(Math.sin(s.yaw), 0, Math.cos(s.yaw));
+    if (!s.placed) { rig.position.x += s.pos.x + fwd.x * 0.05 - headW.x; rig.position.z += s.pos.z + fwd.z * 0.05 - headW.z; s.placed = true; }
+    const wantY = THREE.MathUtils.clamp(s.pos.y + 0.78 - camera.position.y, -0.9, 0.4);
+    rig.position.y += (wantY - rig.position.y) * Math.min(1, dt * 6);
+  } else {
+    rig.position.set(s.pos.x, 0, s.pos.z);
+    camera.position.set(0, s.pos.y + 0.75, 0);
+  }
+}
+
+/* ================= interaction (lobby) ================= */
+let interactables = [];
+function pickInteract(origin, dir, far = 6) {
+  raycaster.set(origin, dir); raycaster.far = far;
+  const hits = raycaster.intersectObjects(interactables, true);
+  for (const h of hits) {
+    let o = h.object;
+    while (o && !o.userData.interact && !o.userData.bench && !o.userData.weaponId) o = o.parent;
+    if (o) return { ...h, target: o };
+    if (h.object === lobby.glass) continue;
+    return null;
+  }
+  return null;
+}
+function activate(hit) {
+  const o = hit.target;
+  if (o.userData.interact) { o.userData.interact.select(hit); return; }
+  if (o.userData.weaponId) { shop.sel = o.userData.weaponId; shop.redraw(); sfx.click(); return; }
+  if (o.userData.bench) {
+    let best = null, bd = 1.3;
+    for (const s of lobby.seats) { if (s.taken) continue; const d = s.pos.distanceTo(hit.point); if (d < bd) { bd = d; best = s; } }
+    if (best) { best.aligned = false; best.placed = false; sitOn(best); } else sfx.deny();
+  }
+}
+const lastHover = new Set();
+function updateHover(hits) {
+  const now = new Set();
+  for (const h of hits) if (h && h.target.userData.interact) { h.target.userData.interact.hover(h); now.add(h.target.userData.interact); }
+  for (const p of lastHover) if (!now.has(p)) p.hover(null);
+  lastHover.clear(); now.forEach((p) => lastHover.add(p));
+}
+function desktopUse() {
+  if (mode !== "lobby") return;
+  if (player.seated) { standUp(); return; }
+  const o = camera.getWorldPosition(new THREE.Vector3()), d = camera.getWorldDirection(new THREE.Vector3());
+  const h = pickInteract(o, d, 4);
+  if (h) activate(h);
+}
+
+/* ================= main loop ================= */
+const clock = new THREE.Clock();
+let extractHold = 0;
+const gunAimQuat = new THREE.Quaternion();
+let twoHanded = false;
+const foreW = new THREE.Vector3(), rightW = new THREE.Vector3(), leftW = new THREE.Vector3();
+const lookM = new THREE.Matrix4();
+
+function frame() {
+  const dt = Math.min(clock.getDelta(), 1 / 20);
+  const t = clock.elapsedTime;
+  if (mode === "loading") { renderer.render(loadScene, camera); return; }
+  const xr = renderer.xr.isPresenting;
+  const R = hands.right, L = hands.left;
+
+  /* ---- locomotion ---- */
+  if (player.seated) {
+    updateSeated(dt);
+    if (xr) { const [sx, sy] = stick(L); if (Math.hypot(sx, sy) > 0.6) standUp(); }
+  } else if (!player.dead) {
+    let mx = 0, mz = 0, speed = 0;
+    if (xr) {
+      const [sx, sy] = stick(L);
+      if (sx || sy) {
+        camera.getWorldDirection(tmpV); tmpV.y = 0; tmpV.normalize();
+        const rx = -tmpV.z, rz = tmpV.x;
+        speed = btn(L, 3) ? 4.6 : 2.8;
+        mx = (tmpV.x * -sy + rx * sx) * speed * dt; mz = (tmpV.z * -sy + rz * sx) * speed * dt;
+      }
+      // snap turn around the head
+      const [tx] = stick(R);
+      if (R) {
+        if (Math.abs(tx) > 0.7 && R.turnReady) {
+          R.turnReady = false;
+          camera.getWorldPosition(headW);
+          const ang = tx > 0 ? -Math.PI / 6 : Math.PI / 6;
+          rig.rotation.y += ang;
+          rig.updateMatrixWorld();
+          camera.getWorldPosition(tmpV);
+          rig.position.x += headW.x - tmpV.x; rig.position.z += headW.z - tmpV.z;
+        } else if (Math.abs(tx) < 0.3) R.turnReady = true;
+      }
+    } else {
+      camera.position.set(0, 1.68, 0);
+      const f = tmpV.set(-Math.sin(yaw), 0, -Math.cos(yaw)), r = tmpV2.set(Math.cos(yaw), 0, -Math.sin(yaw));
+      let ix = 0, iz = 0;
+      if (keys.KeyW) { ix += f.x; iz += f.z; } if (keys.KeyS) { ix -= f.x; iz -= f.z; }
+      if (keys.KeyD) { ix += r.x; iz += r.z; } if (keys.KeyA) { ix -= r.x; iz -= r.z; }
+      const l = Math.hypot(ix, iz);
+      speed = keys.ShiftLeft ? 5 : 3.2;
+      if (l > 0) { mx = (ix / l) * speed * dt; mz = (iz / l) * speed * dt; } else speed = 0;
+    }
+    moveAndCollide(mx, mz);
+    playerAvatar.speed = (mx || mz) ? speed : 0;
+  }
+  if (!xr) camera.rotation.set(pitch, yaw, 0, "YXZ");
+  rig.updateMatrixWorld(true);
+  camera.getWorldPosition(headW);
+
+  /* ---- mode logic ---- */
+  desktopPrompt = "";
+  if (mode === "lobby") {
+    const hits = [];
+    for (const h of [R, L]) {
+      if (!h) continue;
+      h.laser.visible = xr;
+      if (!xr) continue;
+      h.controller.getWorldPosition(tmpV); h.controller.getWorldDirection(tmpV2).negate();
+      const hit = pickInteract(tmpV, tmpV2);
+      h.laser.userData.set(hit ? hit.distance : 2.5, !!hit);
+      hits.push(hit);
+      if (pressed(h, 0)) {
+        if (hit) { activate(hit); haptic(h, 0.3, 20); }
+        else if (player.seated) standUp();
+      }
+      if (h.glove) h.glove.userData.setCurl(Math.max(btnVal(h, 0), btnVal(h, 1)));
+    }
+    if (!xr) {
+      const o = camera.getWorldPosition(new THREE.Vector3()), d = camera.getWorldDirection(new THREE.Vector3());
+      const hit = pickInteract(o, d, 4);
+      hits.push(hit);
+      if (hit) desktopPrompt = hit.target.userData.bench ? "E — sit on bench" : "Click — use";
+      if (mouseClicked && hit && !hit.target.userData.bench) activate(hit);
+    }
+    updateHover(hits);
+    lobby.setDisplay(shop.sel, WM);
+    lobby.update(dt, t);
+  } else if (mode === "surface") {
+    surfaceWind.update(dt);
+    /* gun pose */
+    if (xr && R) {
+      R.grip.getWorldPosition(rightW);
+      R.controller.getWorldQuaternion(gunAimQuat);
+      twoHanded = false;
+      if (L && gunState.def.twoHand !== undefined && gun.userData.fore && btn(L, 1)) {
+        L.grip.getWorldPosition(leftW);
+        gun.position.copy(rightW); gun.quaternion.copy(gunAimQuat); gun.updateMatrixWorld();
+        gun.userData.fore.getWorldPosition(foreW);
+        if (leftW.distanceTo(foreW) < 0.25 || L.wasSupporting) {
+          twoHanded = leftW.distanceTo(rightW) > 0.12;
+          if (twoHanded) {
+            tmpV.set(0, 1, 0).applyQuaternion(gunAimQuat);
+            lookM.lookAt(rightW, leftW, tmpV);
+            gunAimQuat.setFromRotationMatrix(lookM);
+            const f = gun.userData.fore.position;
+            gunAimQuat.multiply(tmpQ.setFromAxisAngle(tmpV.set(1, 0, 0), -Math.atan2(f.y, -f.z)));
+          }
+        }
+      }
+      if (L) L.wasSupporting = twoHanded;
+      gun.position.copy(rightW);
+      gun.quaternion.copy(gunAimQuat);
+      if (R.glove) R.glove.userData.setCurl(0.85);
+      if (L?.glove) L.glove.userData.setCurl(Math.max(btnVal(L, 1), twoHanded ? 1 : 0));
+      if (L?.glove) L.glove.visible = true;
+      if (R.laser) R.laser.visible = false; if (L?.laser) L.laser.visible = false;
+    } else {
+      twoHanded = false;
+      const off = thirdPerson ? new THREE.Vector3(0.25, -0.2, -0.5) : new THREE.Vector3(0.16, -0.17, -0.34);
+      gun.position.copy(off).applyQuaternion(camera.getWorldQuaternion(tmpQ)).add(headW);
+      gun.quaternion.copy(tmpQ);
+      gunAimQuat.copy(tmpQ);
+    }
+    gun.visible = xr || !thirdPerson;
+    // recoil kick (visual)
+    const k = gunState.kick * gunState.def.recoil * (twoHanded ? 0.5 : 1);
+    gun.rotateX(k * 1.6); gun.translateZ(k * 0.25);
+    const pump = gun.userData.pump;
+    if (pump) pump.position.z = -0.32 + Math.sin(Math.min(1, (0.45 - gunState.pumpT) / 0.45) * Math.PI) * 0.09 * (gunState.pumpT > 0 ? 1 : 0);
+    /* firing */
+    const r = gunState.update(dt);
+    if (r === "reloaded") { gun.userData.mag.visible = true; gun.userData.setAmmo(gunState.ammo, gunState.def.mag); sfx.magIn(); if (L?.carryMag) { L.carryMag.parent?.remove(L.carryMag); L.carryMag = null; } }
+    const trig = xr ? btn(R, 0) : mouseDown && !!document.pointerLockElement;
+    const trigPressed = xr ? pressed(R, 0) : mouseClicked && !!document.pointerLockElement;
+    if (!player.dead && gunState && (trigPressed || (trig && gunState.def.auto))) {
+      if (gunState.canFire() && (gunState.pumpT <= 0)) fire();
+      else if (trigPressed && (gunState.ammo === 0 || gunState.magOut)) { sfx.dry(); if (!xr && gunState.startTimedReload()) { sfx.magOut(); gun.userData.mag.visible = false; } }
+    }
+    /* VR reload: A ejects; bring the fresh mag (left hand) to the magwell. A again = auto reload. B = switch. */
+    if (xr && R && !player.dead) {
+      if (pressed(R, 4)) { if (gunState.magOut && gunState.reloadT <= 0) { gunState.startTimedReload(); } else ejectMag(); }
+      if (pressed(R, 5)) { const owned = WEAPONS.filter((w) => save.weapons.includes(w.id)); const i = owned.findIndex((w) => w.id === gunId); equip(owned[(i + 1) % owned.length].id); }
+      if (L?.carryMag && gunState.magOut && gunState.reloadT <= 0) {
+        L.carryMag.getWorldPosition(leftW);
+        gun.userData.magwell.getWorldPosition(foreW);
+        if (leftW.distanceTo(foreW) < 0.11) {
+          gunState.insertMag();
+          L.carryMag.parent?.remove(L.carryMag); L.carryMag = null;
+          gun.userData.mag.visible = true; gun.userData.setAmmo(gunState.ammo, gunState.def.mag);
+          sfx.magIn(); haptic(R, 0.6, 50); haptic(L, 0.6, 50);
+        }
+      }
+    }
+    /* extraction: hold Y, or stand on the beacon */
+    const holdY = xr ? btn(L, 5) : false;
+    extractHold = holdY ? extractHold + dt : 0;
+    const onBeacon = Math.hypot(headW.x - waste.beaconPos.x, headW.z - waste.beaconPos.z) < 1.3;
+    player.beaconT = onBeacon && enemies.wave > 0 ? player.beaconT + dt : 0;
+    const extract = Math.max(extractHold / 1.5, player.beaconT / 2.5);
+    if (onBeacon && enemies.wave > 0) desktopPrompt = "Hold position on the beacon to extract…";
+    if (extract >= 1) goLobby("Extracted safely.");
+    /* enemies */
+    const feet = new THREE.Vector3(headW.x, rig.position.y, headW.z);
+    enemies.update(dt, t, { head: headW, feet }, (dmg, dir) => {
+      if (player.dead) return;
+      player.hp -= dmg; player.regenT = 4; hurtAmt.value = Math.min(1, hurtAmt.value + 0.6);
+      sfx.hurt(); haptic(R, 0.9, 120); haptic(L, 0.9, 120);
+      if (player.hp <= 0) { player.hp = 0; player.dead = true; toast("You were downed. Coins earned are kept."); setTimeout(() => goLobby("Downed on the surface."), 2800); }
+    });
+    if (player.regenT > 0) player.regenT -= dt; else player.hp = Math.min(100, player.hp + dt * 6);
+    waste.update(dt, t, headW, surfaceWind.vec);
+    sfx.setAmbience("surface", surfaceWind.gust);
+    wrist.set({ hp: Math.round(player.hp), coins: save.coins, wave: enemies.wave, left: enemies.remaining(), extract: Math.min(1, extract) });
+    for (let i = dropped.length - 1; i >= 0; i--) {
+      const m = dropped[i]; m.userData.life -= dt;
+      m.userData.vel.y -= 9.8 * dt; m.position.addScaledVector(m.userData.vel, dt); m.rotation.x += dt * 3;
+      const gy = waste.heightAt(m.position.x, m.position.z) + 0.03;
+      if (m.position.y < gy) { m.position.y = gy; m.userData.vel.set(0, 0, 0); }
+      if (m.userData.life <= 0) { scene.remove(m); dropped.splice(i, 1); }
+    }
+  }
+  if (mode === "lobby") sfx.setAmbience("lobby", 0);
+
+  /* ---- wrist HUD on the left hand ---- */
+  if (xr && L) {
+    if (wrist.mesh.parent !== L.grip) { L.grip.add(wrist.mesh); wrist.mesh.position.set(0.0, 0.035, 0.09); wrist.mesh.rotation.set(-Math.PI / 2.4, 0, 0); }
+    wrist.mesh.visible = true;
+    if (mode === "lobby") wrist.set({ hp: 100, coins: save.coins, wave: 0, left: 0, extract: 0 });
+  } else wrist.mesh.visible = false;
+
+  /* ---- own avatar (desktop third-person view) ---- */
+  const showAvatar = !xr && thirdPerson;
+  playerAvatar.root.visible = showAvatar;
+  if (showAvatar) {
+    playerAvatar.root.position.set(rig.position.x, rig.position.y, rig.position.z);
+    playerAvatar.groundY = rig.position.y;
+    playerAvatar.root.rotation.y = yaw + Math.PI;
+    playerAvatar.setPose(player.seated ? "sit" : "stand");
+    if (player.seated) { playerAvatar.root.position.set(player.seated.pos.x, 0, player.seated.pos.z); playerAvatar.root.rotation.y = player.seated.yaw; }
+    playerAvatar.holdingGun = mode === "surface";
+    playerAvatar.headYaw = 0;
+    const back = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw)).multiplyScalar(2.6);
+    camera.position.set(back.x + Math.cos(yaw) * 0.5, (player.seated ? 1.2 : 1.68) + 0.35, back.z - Math.sin(yaw) * 0.5);
+    playerAvatar.update(dt, mode === "surface" ? surfaceWind.vec : tmpV.set(0.4, 0, 0.3));
+  }
+
+  /* ---- effects, fades, overlays ---- */
+  fx.update(dt, headW);
+  for (let i = pops.length - 1; i >= 0; i--) { const p = pops[i]; p.userData.life -= dt; p.position.y += dt * 0.7; p.material.opacity = Math.min(1, p.userData.life); if (p.userData.life <= 0) { scene.remove(p); pops.splice(i, 1); } }
+  hurtAmt.value = Math.max(player.dead ? 0.8 : 0, hurtAmt.value - dt * 0.9);
+  if (fade.dir) {
+    fade.t += dt * fade.dir * 1.8;
+    if (fade.dir > 0 && fade.t >= 1) { fade.t = 1; fade.dir = -1; const fn = fade.then; fade.then = null; fn && fn(); }
+    if (fade.dir < 0 && fade.t <= 0) { fade.t = 0; fade.dir = 0; }
+  }
+  fadeAmt.value = fade.t;
+  updateDomHud(dt);
+  mouseClicked = false;
+  latchButtons();
+  renderer.render(scene, camera);
+}
+
+/* ================= boot ================= */
+const loadScene = new THREE.Scene();
+loadScene.background = new THREE.Color(0x0b0d10);
+renderer.setAnimationLoop(frame);
+
+async function boot() {
+  T = await generateTextures((p, name) => { loadBar.style.width = Math.round(p * 70) + "%"; loadTxt.textContent = `Weathering ${name}…`; });
+  await new Promise((r) => setTimeout(r, 0));
+  WM = makeWeaponMaterials(T);
+  loadTxt.textContent = "Building Shelter 7…"; loadBar.style.width = "78%";
+  await new Promise((r) => setTimeout(r, 0));
+  lobby = buildLobby(renderer, T, sfx, WM);
+  loadTxt.textContent = "Scorching the surface…"; loadBar.style.width = "88%";
+  await new Promise((r) => setTimeout(r, 0));
+  waste = buildWasteland(renderer, T);
+  enemies = new EnemyManager(waste.scene, T, waste, fx, sfx);
+  fx.onCasing = () => sfx.casing();
+
+  // terminals
+  shop = new ShopPanel(sfx, (kind, id) => { if (kind === "buy") toast(`Purchased ${weaponById(id).name}.`); if (kind === "equip" || kind === "buy") toast(`${weaponById(id).name} equipped.`); });
+  shop.mesh.position.set(9.05, 1.62, -1.6); shop.mesh.rotation.set(0, -Math.PI / 2, 0); shop.mesh.rotateX(-0.12);
+  lobby.scene.add(shop.mesh);
+  const shopFrame = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.0, 1.58), new THREE.MeshStandardMaterial({ color: 0x23282c, metalness: 0.6, roughness: 0.5 }));
+  shopFrame.position.set(9.12, 1.62, -1.6); shopFrame.rotation.z = -0.12; lobby.scene.add(shopFrame);
+  playerAvatar = new Avatar(T, save.look, { quality: 1 });
+  wardrobe = new WardrobePanel(sfx, (look, committed) => {
+    lobby.preview.setLook(look); lobby.preview.resetSim();
+    if (committed) { playerAvatar.setLook(look); toast("Look saved. Press V on desktop to see yourself in third person."); }
+  });
+  wardrobe.mesh.position.set(-11.0, 1.55, -1.3); wardrobe.mesh.rotation.y = Math.PI / 2 - 0.35;
+  lobby.scene.add(wardrobe.mesh);
+  lobby.preview.setLook(save.look);
+  deployPanel = new Panel(0.9, 0.5, 720, 400);
+  deployPanel.draw = function (ctx, W, H) {
+    ctx.fillStyle = "#120d08"; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = "#ffb02e"; ctx.lineWidth = 6; ctx.strokeRect(8, 8, W - 16, H - 16);
+    ctx.fillStyle = "#ffb02e"; ctx.font = "800 44px Segoe UI, Arial"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("SURFACE AIRLOCK", W / 2, 70);
+    ctx.font = "500 26px Segoe UI, Arial"; ctx.fillStyle = "#d9c9a8";
+    ctx.fillText(`Equipped: ${weaponById(save.equipped).name}`, W / 2, 128);
+    ctx.fillText(`Best wave: ${save.stats.bestWave}  ·  Total kills: ${save.stats.kills}`, W / 2, 166);
+    const hov = this.button("go", 60, 220, W - 120, 130, () => deploy());
+    ctx.fillStyle = this.armed ? "#5a3a10" : hov ? "#ffc35a" : "#ff9a2a"; ctx.fillRect(60, 220, W - 120, 130);
+    ctx.fillStyle = "#140c04"; ctx.font = "900 50px Segoe UI, Arial"; ctx.fillText(this.armed ? "CYCLING AIRLOCK…" : "DEPLOY ▸", W / 2, 287);
+  };
+  deployPanel.redraw();
+  deployPanel.mesh.position.set(-5.9, 1.5, -8.73);
+  lobby.scene.add(deployPanel.mesh);
+  wrist = new WristHUD();
+  interactables = [shop.mesh, wardrobe.mesh, deployPanel.mesh, lobby.benches, lobby.glass, ...lobby.rackGuns];
+  onSave(() => { shop.redraw(); wardrobe.redraw(); deployPanel.redraw(); });
+
+  // compile shaders up front to avoid hitches
+  loadTxt.textContent = "Warming up shaders…"; loadBar.style.width = "96%";
+  await new Promise((r) => setTimeout(r, 0));
+  equip(save.equipped);
+  waste.scene.add(gun); renderer.compile(waste.scene, camera); waste.scene.remove(gun);
+  renderer.compile(lobby.scene, camera);
+  enterLobby("Welcome to Shelter 7. Sit, shop, dress up — then deploy.");
+  loadBar.style.width = "100%";
+  $("loading").style.display = "none";
+  initVR();
+}
+
+async function initVR() {
+  const btnEl = $("vrBtn"), overlay = $("overlay");
+  overlay.style.display = "flex";
+  $("desk").onclick = () => { sfx.init(); overlay.style.display = "none"; renderer.domElement.requestPointerLock?.(); };
+  if (!navigator.xr || !(await navigator.xr.isSessionSupported("immersive-vr").catch(() => false))) {
+    btnEl.textContent = "VR headset not detected"; btnEl.disabled = true; return;
+  }
+  btnEl.disabled = false; btnEl.textContent = "ENTER VR";
+  btnEl.onclick = async () => {
+    sfx.init();
+    const session = await navigator.xr.requestSession("immersive-vr", { optionalFeatures: ["local-floor", "bounded-floor"] });
+    await renderer.xr.setSession(session);
+    overlay.style.display = "none";
+    camera.position.set(0, 0, 0); camera.rotation.set(0, 0, 0);
+    rig.rotation.y = yaw;
+    session.addEventListener("end", () => { overlay.style.display = "flex"; rig.rotation.set(0, 0, 0); });
+  };
+}
+
+boot().catch((e) => { console.error(e); loadTxt.textContent = "Failed to start: " + e.message; });
+
+// small debug handle (handy for testing from the browser console)
+window.__deadEarth = {
+  get mode() { return mode; }, rig, camera, player, keys,
+  look(y, p = 0) { yaw = y; pitch = p; },
+  surface() { enterSurface(); }, lobby() { enterLobby(); },
+  third(v) { thirdPerson = v; },
+  sitNearest() { const s = lobby.seats.find((x) => !x.taken); if (s) { s.aligned = s.placed = false; sitOn(s); } },
+  stand() { standUp(); },
+  get enemies() { return enemies; }, get save() { return save; }, get lobbyWorld() { return lobby; }, get wardrobe() { return wardrobe; },
+  fire() { if (gunState && gunState.canFire()) fire(); }, equip(id) { equip(id); }, renderer,
+};
