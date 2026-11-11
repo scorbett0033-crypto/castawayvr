@@ -368,7 +368,7 @@ function hurtPlayer(dmg, dir, src) {
   player.hp -= dmg; player.regenT = 4; hurtAmt.value = Math.min(1, hurtAmt.value + 0.6);
   sfx.hurt(); haptic(R, 0.9, 120); haptic(L, 0.9, 120);
   // every hit opens (or worsens) a wound that bleeds coins; a hard hit spurts some straight away
-  const bad = dmg >= 18 || (player.wound && dmg >= 8);
+  const bad = dmg >= 18 || (!!player.wound && dmg >= 8);
   if (!player.wound) { player.wound = { bad }; player.bleedT = 0.4; toast(bad ? "Badly wounded! You're bleeding coins and ammo — grab them back, then use a medkit." : "You're bleeding coins — grab them back and press them into the wound, then bandage it."); }
   else if (bad && !player.wound.bad) { player.wound.bad = true; toast("The wound is bad now — you need a medkit."); }
   if (player.hp > 0) bleed(bad ? 4 : 1, dir);
@@ -892,7 +892,7 @@ async function boot() {
     lobby.colliders.push({ x0: post.position.x - 0.3, x1: post.position.x + 0.3, z0: post.position.z - 0.3, z1: post.position.z + 0.3 });
   }
   wrist = new WristHUD();
-  interactables = [shop.mesh, wardrobe.mesh, stakePanel.mesh, lobby.benches, lobby.glass, ...lobby.rackGuns];
+  interactables = [shop.mesh, wardrobe.mesh, stakePanel.mesh, lobby.benches, lobby.glass, ...lobby.rackGuns].filter(Boolean);
   onSave(() => { shop.redraw(); wardrobe.redraw(); stakePanel.redraw(); });
 
   // compile shaders up front to avoid hitches
