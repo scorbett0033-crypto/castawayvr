@@ -15,9 +15,13 @@ const pending = new Map();
 const ready = new Map();
 const clips = {};
 
+const masks = new Map();
+const loadMask = (name) => new Promise((res) => { const im = new Image(); im.onload = () => { masks.set(name, im); res(); }; im.onerror = () => res(); im.src = BASE + name + "_mask.png"; });
 export function ensureModel(name) {
   if (!pending.has(name)) {
-    pending.set(name, loader.loadAsync(BASE + name + ".glb").then((g) => {
+    // "_lo" = lighter mesh for crowds; it borrows the full model's textures + fabric mask
+    const hi = name.replace(/_lo$/, "");
+    pending.set(name, Promise.all([loader.loadAsync(BASE + name + ".glb"), hi !== name ? ensureModel(hi) : name.startsWith("base_") ? loadMask(name) : null]).then(([g]) => {
       if (name.startsWith("anims_")) {
         // drop helper tracks that have no matching bone in the character rigs
         g.animations.forEach((c) => (c.tracks = c.tracks.filter((t) => !/MotionExtractionHelper|Footsteps/.test(t.name))));
@@ -71,10 +75,15 @@ function headInfo(name) {
   if (rigOf(name) === "meshy") {
     // bald base: every vertex the head bone drives is skull / face / ears
     const box = new THREE.Box3(), v = new THREE.Vector3();
+    const hp = head.getWorldPosition(new THREE.Vector3()), ny = scene.getObjectByName(MESHY_BONES.neck).getWorldPosition(new THREE.Vector3()).y;
     scene.traverse((sm) => {
       if (!sm.isSkinnedMesh) return;
       const hw = headWeight(sm, head.name), n = sm.geometry.attributes.position.count;
-      for (let i = 0; i < n; i++) if (hw(i) > 0.8) box.expandByPoint(sm.getVertexPosition(i, v).applyMatrix4(sm.matrixWorld));
+      for (let i = 0; i < n; i++) {
+        if (hw(i) < 0.8) continue;
+        sm.getVertexPosition(i, v).applyMatrix4(sm.matrixWorld);
+        if (v.distanceTo(hp) < 0.26 && v.y > ny) box.expandByPoint(v);
+      }
     });
     const sz = box.getSize(new THREE.Vector3());
     const r = THREE.MathUtils.clamp(sz.x / 2 * 0.86, 0.07, 0.11); // trim the ears
@@ -373,50 +382,32 @@ function pantsMap(key, mesh, baseMap, ownTone, pants) {
   return t;
 }
 
-/* ---------- bald base people: re-dye the tee and the jeans by colour ---------- */
+/* ---------- bald base people: re-dye the tee and the jeans (baked fabric mask: R = tee, G = jeans) ---------- */
 const dyeCache = new Map();
-function baseDyeMap(key, mesh, baseMap, pants, shirtHex) {
+function baseDyeMap(key, modelName, baseMap, pants, shirtHex) {
   if (dyeCache.has(key)) return dyeCache.get(key);
-  const g = mesh.geometry, uv = g.attributes.uv, si = g.attributes.skinIndex, sw = g.attributes.skinWeight, ix = g.index;
-  const nI = ix ? ix.count : g.attributes.position.count;
-  const bones = mesh.skeleton.bones;
-  const legB = bones.map((b) => /^(Hips|LeftUpLeg|RightUpLeg|LeftLeg|RightLeg)$/.test(b.name));
-  const footB = bones.map((b) => /Foot|Toe/.test(b.name));
-  const torsoB = bones.map((b) => /^(Hips|Spine|Spine01|Spine02|neck|LeftShoulder|RightShoulder|LeftArm|RightArm|LeftForeArm|RightForeArm)$/.test(b.name));
-  const wOf = (i, arr) => (arr[si.getX(i)] ? sw.getX(i) : 0) + (arr[si.getY(i)] ? sw.getY(i) : 0) + (arr[si.getZ(i)] ? sw.getZ(i) : 0) + (arr[si.getW(i)] ? sw.getW(i) : 0);
+  const mimg = masks.get(modelName.replace(/_lo$/, ""));
+  if (!mimg) return baseMap;
   const img = baseMap.image, W = img.width, H = img.height;
-  const maskOf = (test) => {
-    const c = document.createElement("canvas"); c.width = W; c.height = H;
-    const x = c.getContext("2d", { willReadFrequently: true }); x.fillStyle = "#fff"; x.strokeStyle = "#fff"; x.lineWidth = 2; x.beginPath();
-    for (let t = 0; t < nI; t += 3) {
-      const a = ix ? ix.getX(t) : t, b = ix ? ix.getX(t + 1) : t + 1, cc = ix ? ix.getX(t + 2) : t + 2;
-      if (!test(a) && !test(b) && !test(cc)) continue;
-      x.moveTo(uv.getX(a) * W, uv.getY(a) * H); x.lineTo(uv.getX(b) * W, uv.getY(b) * H); x.lineTo(uv.getX(cc) * W, uv.getY(cc) * H); x.closePath();
-    }
-    x.fill(); x.stroke();
-    return x.getImageData(0, 0, W, H).data;
-  };
-  const legM = pants && pants.id !== "orig" ? maskOf((i) => wOf(i, legB) > 0.5 && wOf(i, footB) < 0.3) : null;
-  const torsoM = shirtHex != null ? maskOf((i) => wOf(i, torsoB) > 0.5) : null;
   const cv = imgCanvas(img), ctx = cv.getContext("2d", { willReadFrequently: true });
-  const id = ctx.getImageData(0, 0, W, H), d = id.data, o = d.slice(); // classify on the original colours
-  const lum = (i) => o[i] * 0.3 + o[i + 1] * 0.55 + o[i + 2] * 0.15;
-  const skin = (i) => o[i] > o[i + 1] && o[i + 1] >= o[i + 2] - 4 && o[i] - o[i + 2] > 22;
-  const denim = (i) => !skin(i) && (o[i + 2] - o[i] > 6 || lum(i) < 60);
-  const tee = (i) => { const mx = Math.max(o[i], o[i + 1], o[i + 2]), mn = Math.min(o[i], o[i + 1], o[i + 2]); return !skin(i) && mx - mn < 26 && lum(i) > 70 && o[i + 2] - o[i] < 12; };
-  const recolor = (mask, test, tint, camo) => {
+  const id = ctx.getImageData(0, 0, W, H), d = id.data;
+  const md = imgCanvas(mimg, W, H).getContext("2d", { willReadFrequently: true }).getImageData(0, 0, W, H).data;
+  const lum = (i) => d[i] * 0.3 + d[i + 1] * 0.55 + d[i + 2] * 0.15;
+  const dye = (ch, tint, camo) => {
     let sum = 0, n = 0;
-    for (let i = 0; i < d.length; i += 4) if (mask[i] > 128 && test(i)) { sum += lum(i); n++; }
-    const mean = n ? sum / n : 128;
-    const tr = (tint >> 16) & 255, tg = (tint >> 8) & 255, tb = tint & 255;
+    for (let i = 0; i < d.length; i += 4) if (md[i + ch] > 200) { sum += lum(i); n++; }
+    const mean = n ? sum / n : 128, tr = (tint >> 16) & 255, tg = (tint >> 8) & 255, tb = tint & 255;
     for (let i = 0; i < d.length; i += 4) {
-      if (mask[i] < 128 || !test(i)) continue;
-      const k = Math.pow(lum(i) / mean, 0.9);
-      d[i] = Math.min(255, (camo ? camo[i] : tr) * k); d[i + 1] = Math.min(255, (camo ? camo[i + 1] : tg) * k); d[i + 2] = Math.min(255, (camo ? camo[i + 2] : tb) * k);
+      const w = md[i + ch] / 255;
+      if (w <= 0.02) continue;
+      const k = Math.min(1.3, Math.max(0.5, Math.pow(lum(i) / mean, 0.75)));
+      d[i] += (Math.min(255, (camo ? camo[i] : tr) * k) - d[i]) * w;
+      d[i + 1] += (Math.min(255, (camo ? camo[i + 1] : tg) * k) - d[i + 1]) * w;
+      d[i + 2] += (Math.min(255, (camo ? camo[i + 2] : tb) * k) - d[i + 2]) * w;
     }
   };
-  if (torsoM) recolor(torsoM, tee, shirtHex);
-  if (legM) recolor(legM, denim, pants.tint ?? 0x777777, pants.camo ? camoCanvas(W, H, pants.camo) : null);
+  if (shirtHex != null) dye(0, shirtHex);
+  if (pants && pants.id !== "orig") dye(1, pants.tint ?? 0x777777, pants.camo ? camoCanvas(W, H, pants.camo) : null);
   ctx.putImageData(id, 0, 0);
   const t = canvasTexFrom(cv, baseMap, true);
   dyeCache.set(key, t);
@@ -559,8 +550,8 @@ function grayHairTexture(tex) {
 }
 
 export class Human {
-  constructor(textures, look = DEFAULT_LOOK, { quality = 1 } = {}) {
-    this.tex = textures; this.quality = quality;
+  constructor(textures, look = DEFAULT_LOOK, { quality = 1, lod = false } = {}) {
+    this.tex = textures; this.quality = quality; this.lod = lod;
     this.root = new THREE.Group();
     this.invRoot = new THREE.Matrix4(); this.rootQuat = new THREE.Quaternion();
     this.groundY = 0; this.pose = "stand"; this.speed = 0; this.walkPhase = 0; this.t = Math.random() * 100;
@@ -576,12 +567,13 @@ export class Human {
     const L = sanitize(look);
     this.look = L;
     const o = outfitFor(L);
-    const face = L.face === "own" ? o.model : L.face;
-    const need = [o.model, face].filter((n) => !modelReady(n));
+    const mdl = o.model + (this.lod && o.rig === "meshy" ? "_lo" : "");
+    const face = L.face === "own" ? mdl : L.face;
+    const need = [mdl, face].filter((n) => !modelReady(n));
     if (need.length) {
       Promise.all(need.map(ensureModel)).then(() => { if (this.look === L) this.setLook(L); });
       if (!this.model) return;
-    } else if (this.modelName !== o.model || this.faceName !== face) this.buildModel(o.model, face);
+    } else if (this.modelName !== mdl || this.faceName !== face) this.buildModel(mdl, face);
     this.applyExtras();
   }
 
@@ -596,8 +588,11 @@ export class Human {
     this.root.add(m);
     this.matList = [];
     let skinned = null;
+    let hiMat = null;
+    if (name.endsWith("_lo")) ready.get(name.replace(/_lo$/, "")).scene.traverse((o) => { if (o.isSkinnedMesh && !hiMat) hiMat = o.material; });
     m.traverse((o) => {
       if (!o.isMesh) return;
+      if (hiMat) o.material = hiMat;
       o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false;
       o.material = Array.isArray(o.material) ? o.material.map((x) => x.clone()) : o.material.clone();
       (Array.isArray(o.material) ? o.material : [o.material]).forEach((mt) => this.matList.push(mt));
@@ -773,7 +768,7 @@ export class Human {
     for (const bp of this.bodyParts || []) {
       let map = bp.base;
       if (!rb) {
-        if ((pants && pants.id !== "orig") || outfit.shirt != null) try { map = baseDyeMap(`${this.modelName}>${pants?.id}>${outfit.shirt}`, bp.mesh, bp.base, pants, outfit.shirt); } catch (e) { console.warn("dye failed", e); }
+        if ((pants && pants.id !== "orig") || outfit.shirt != null) try { map = baseDyeMap(`${this.modelName.replace(/_lo$/, "")}>${pants?.id}>${outfit.shirt}`, this.modelName, bp.base, pants, outfit.shirt); } catch (e) { console.warn("dye failed", e); }
       } else if (pants && pants.id !== "orig") { try { map = pantsMap(`${this.modelName}>${this.faceName}>${pants.id}`, bp.mesh, bp.base, skinTone(this.faceName), pants); } catch (e) { console.warn("pants dye failed", e); } }
       if (bp.mat.map !== map) { bp.mat.map = map; bp.mat.needsUpdate = true; }
     }

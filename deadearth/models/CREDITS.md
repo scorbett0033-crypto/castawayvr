@@ -27,3 +27,9 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Base people (base_bm / base_bf, *_lo, anims_bm / anims_bf)
+The bald base man and woman were generated for Ready Player 2 with Meshy (image-to-3D, auto-rigging
+and animation library), then cleaned up for the game: smoothed shading, evened skin and fabric tones,
+padded texture seams, new skin-pore / knit / denim-twill normal maps, fabric masks for dyeing and
+lighter crowd meshes (*_lo).

@@ -203,7 +203,9 @@ export class WardrobePanel extends Panel {
       } else {
         ctx.fillStyle = "#41c7b9"; ctx.font = `700 46px ${FONT}`; ctx.textAlign = "center"; ctx.fillText(item.icon || "✂", x + 54, y + iy + 2);
       }
-      ctx.textAlign = "left"; ctx.fillStyle = "#e8edf1"; ctx.font = `700 ${dense ? 21 : 26}px ${FONT}`;
+      ctx.textAlign = "left"; ctx.fillStyle = "#e8edf1";
+      let fs = dense ? 21 : 26; ctx.font = `700 ${fs}px ${FONT}`;
+      while (fs > 14 && ctx.measureText(item.name).width > w - 110) ctx.font = `700 ${--fs}px ${FONT}`;
       ctx.fillText(item.name, x + 100, y + iy);
       ctx.font = `600 22px ${FONT}`;
       if (save.look[T.key] === item.id) { ctx.fillStyle = "#5fe0a0"; ctx.fillText("WEARING", x + 22, y + py); }

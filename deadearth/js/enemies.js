@@ -124,7 +124,7 @@ export class EnemyManager {
   }
   spawnRival(x, z) {
     const fits = ["m_combat", "m_ranger", "f_combat", "m_hoodie", "f_leather", "m_denim", "f_hoodie", "m_base_black", "f_base_olive", "m_base_navy", "f_base_black"]
-      .map((id) => OUTFITS.find((o) => o.id === id)).filter((o) => o && modelReady(o.model));
+      .map((id) => OUTFITS.find((o) => o.id === id)).filter((o) => o && modelReady(o.model + (o.rig === "meshy" ? "_lo" : "")));
     const fit = fits[Math.floor(Math.random() * fits.length)] || OUTFITS[0];
     const look = {
       body: fit.body, outfit: fit.id,
@@ -135,7 +135,7 @@ export class EnemyManager {
       cloth: ["none", "none", "scarf", "cloak", "duster"][Math.floor(Math.random() * 5)],
       mask: Math.random() < 0.5 ? "respirator" : "none",
     };
-    const av = new Human(this.T, look, { quality: 0.35 });
+    const av = new Human(this.T, look, { quality: 0.35, lod: true });
     av.holdingGun = true; av.headYaw = 0;
     av.root.position.set(x, this.world.heightAt(x, z), z);
     av.groundY = av.root.position.y;

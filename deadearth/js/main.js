@@ -680,7 +680,7 @@ async function boot() {
   await new Promise((r) => setTimeout(r, 0));
   WM = makeWeaponMaterials(T);
   loadTxt.textContent = "Loading people…";
-  const preload = ["base_bm", "base_bf", "Male_Adult_11", "Female_Adult_08", "Business_Male_01", "Medical_Female_01", "Male_Adult_16", "Female_Adult_17", "Male_Adult_08",
+  const preload = ["base_bm", "base_bf", "base_bm_lo", "base_bf_lo", "Male_Adult_11", "Female_Adult_08", "Business_Male_01", "Medical_Female_01", "Male_Adult_16", "Female_Adult_17", "Male_Adult_08",
     "Military_Male_01", "Military_Male_02", "Military_Female_01", "Male_Adult_20", "Female_Adult_04", outfitFor(save.look).model];
   await loadHumanAssets(preload, (p) => { loadBar.style.width = Math.round(70 + p * 8) + "%"; });
   for (const n of ["Male_Adult_10", "Male_Adult_12", "Female_Adult_12", "Female_Adult_01"]) ensureModel(n); // rest stream in the background
