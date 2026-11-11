@@ -113,7 +113,7 @@ export class EnemyManager {
   nextWave() {
     this.wave++;
     const n = this.wave;
-    const drones = 1 + Math.floor(n / 2), stalkers = Math.floor(n / 3), rivals = 1 + n;
+    const drones = 0, stalkers = Math.floor(n / 3), rivals = 1 + n; // no drones
     this.toSpawn = [];
     for (let i = 0; i < rivals; i++) this.toSpawn.push("rival");
     for (let i = 0; i < drones; i++) this.toSpawn.push("drone");
