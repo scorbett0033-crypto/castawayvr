@@ -85,10 +85,26 @@ function headInfo(name) {
         if (v.distanceTo(hp) < 0.26 && v.y > ny) box.expandByPoint(v);
       }
     });
-    const sz = box.getSize(new THREE.Vector3());
-    const r = THREE.MathUtils.clamp(sz.x / 2 * 0.86, 0.07, 0.11); // trim the ears
-    const c = box.getCenter(new THREE.Vector3()); c.y = box.max.y - r * 1.04; c.z -= 0.012;
-    const info = { local: head.worldToLocal(c), r };
+    // the cranium (top 35% of the head: above the ears) gives width, depth and top of the skull;
+    // the hair frame is scaled per axis so the hair cap (radius 1.09 in frame units / 10) hugs it
+    const cut = box.min.y + (box.max.y - box.min.y) * 0.65, cutZ = box.min.y + (box.max.y - box.min.y) * 0.5, cb = new THREE.Box3(), zb = new THREE.Box3();
+    scene.traverse((sm) => {
+      if (!sm.isSkinnedMesh) return;
+      const hw = headWeight(sm, head.name), n = sm.geometry.attributes.position.count;
+      for (let i = 0; i < n; i++) {
+        if (hw(i) < 0.8) continue;
+        sm.getVertexPosition(i, v).applyMatrix4(sm.matrixWorld);
+        if (v.distanceTo(hp) > 0.26) continue;
+        if (v.y > cut) cb.expandByPoint(v);
+        if (v.y > cutZ && Math.abs(v.x - hp.x) < 0.05) zb.expandByPoint(v); // forehead + back of skull (no ears, no nose tip)
+      }
+    });
+    if (!zb.isEmpty()) { cb.min.z = Math.min(cb.min.z, zb.min.z); cb.max.z = Math.max(cb.max.z, zb.max.z); }
+    const csz = cb.getSize(new THREE.Vector3());
+    const rx = THREE.MathUtils.clamp(csz.x / 2, 0.06, 0.1), rz = THREE.MathUtils.clamp(csz.z / 2, 0.07, 0.12), ry = (rx + rz) / 2;
+    const c = cb.getCenter(new THREE.Vector3()); c.y = cb.max.y - ry;
+    const k = 1 / 1.09 / 0.1 * 1.05; // 5% clearance over the skull
+    const info = { local: head.worldToLocal(c), r: (rx + rz) / 2, scale: new THREE.Vector3(rx * k, ry * k, rz * k) };
     headCache.set(name, info);
     return info;
   }
@@ -668,7 +684,7 @@ export class Human {
     const frame = (bone, pos, s = 1) => {
       const f = new THREE.Object3D();
       bone.add(f);
-      const D = new THREE.Matrix4().compose(pos, new THREE.Quaternion(), new THREE.Vector3(s, s, s));
+      const D = new THREE.Matrix4().compose(pos, new THREE.Quaternion(), s.isVector3 ? s : new THREE.Vector3(s, s, s));
       const Bm = new THREE.Matrix4().multiplyMatrices(inv0, bone.matrixWorld);
       f.matrix.copy(Bm.invert().multiply(D));
       f.matrix.decompose(f.position, f.quaternion, f.scale);
@@ -679,7 +695,7 @@ export class Human {
     const s2 = P(B.spine2);
     this.headR = headR;
     this.j = {
-      head: frame(B.head, headC, headR / 0.1),
+      head: frame(B.head, headC, hInfo.scale || headR / 0.1),
       neck: frame(B.neck, P(B.neck)),
       chest: frame(B.spine2, new THREE.Vector3(s2.x, shoulderY - 0.16, s2.z)),
       spine: frame(B.spine1 || B.spine, P(B.spine1 || B.spine)),
@@ -864,15 +880,43 @@ export class Human {
     // seat the sitting animation's pelvis onto the bench we were placed on
     if (this.state === "sit" && !this.sitFixed) {
       const p = this.B.pelvis.getWorldPosition(new THREE.Vector3()).applyMatrix4(this.invRoot);
-      this.model.position.x += 0 - p.x; this.model.position.y += 0.575 - p.y; this.model.position.z += -0.17 - p.z;
+      {
+        // rest the thighs on the cushion (top y = 0.485) and put the knees just past its front edge (z = 0.27)
+        const L = (b) => b.getWorldPosition(new THREE.Vector3()).applyMatrix4(this.invRoot);
+        const hipL = L(this.B.lThigh), hipR = L(this.B.rThigh), kneeL = L(this.B.lCalf), kneeR = L(this.B.rCalf);
+        const thighR = this.gender.endsWith("f") ? 0.075 : 0.08;
+        let under = Infinity;
+        for (const [h, k] of [[hipL, kneeL], [hipR, kneeR]]) for (let t = 0.25; t <= 0.8; t += 0.11) under = Math.min(under, h.y + (k.y - h.y) * t - thighR);
+        const kneeZ = Math.max(kneeL.z, kneeR.z);
+        this.model.position.x += 0 - p.x;
+        this.model.position.y += 0.485 - under;
+        this.model.position.z += Math.max(0.33 - kneeZ, -0.12 - p.z); // never sink into the backrest
+      }
       this.sitFixed = true;
       this.root.updateMatrixWorld(true);
     }
     if (this.holdingGun && !this.frozen) this.aimArms();
+    else if (!this.frozen && !this.dead) this.keepHandsOutOfThighs();
     this.root.getWorldQuaternion(this.rootQuat);
     this.updateColliders();
     if (this.hair) this.hair.update(dt, this.t, wind, this.colliders.slice(0, 6));
     for (const c of this.cloths) c.update(dt, this.t, wind, this.colliders);
+  }
+  // the clips were made for other bodies: push a hand that sinks into its thigh back onto the surface
+  keepHandsOutOfThighs() {
+    const B = this.B, hand = new THREE.Vector3(), hip = new THREE.Vector3(), knee = new THREE.Vector3(), q = new THREE.Vector3(), out = new THREE.Vector3();
+    for (const [up, h, th, ca] of [[B.lUp, B.lHand, B.lThigh, B.lCalf], [B.rUp, B.rHand, B.rThigh, B.rCalf]]) {
+      if (!up || !h || !th || !ca) continue;
+      h.getWorldPosition(hand); th.getWorldPosition(hip); ca.getWorldPosition(knee);
+      const seg = knee.clone().sub(hip), L2 = seg.lengthSq();
+      const t = THREE.MathUtils.clamp(hand.clone().sub(hip).dot(seg) / Math.max(L2, 1e-6), 0, 1);
+      q.copy(hip).addScaledVector(seg, t);
+      const r = (this.gender.endsWith("f") ? 0.085 : 0.09) * (1 - 0.35 * t) + 0.03; // thigh tapers to the knee; + hand thickness
+      out.subVectors(hand, q); const d = out.length();
+      if (d >= r) continue;
+      if (d < 1e-4) out.set(up === B.lUp ? 1 : -1, 0, 0).applyQuaternion(this.root.getWorldQuaternion(new THREE.Quaternion())); else out.divideScalar(d);
+      swing(up, hand.clone(), hand.clone().addScaledVector(out, r - d));
+    }
   }
   aimArms() {
     const B = this.B;

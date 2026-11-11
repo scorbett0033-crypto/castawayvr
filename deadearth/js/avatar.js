@@ -305,7 +305,8 @@ export class HairSystem {
     const headM = this.avatar.j.head.matrixWorld;
     this.computeRestWorld(headM);
     const P = this.pos, Q = this.prev, R = this.restW;
-    if (this.needsReset) { P.set(R); Q.set(R); this.needsReset = false; }
+    if (this.needsReset || !Number.isFinite(P[P.length - 1])) { P.set(R); Q.set(R); this.needsReset = false; }
+    if (!(dt > 1e-4)) { this.writeMesh(colliders[0].p); return; } // a zero-length frame would divide by zero
     const h = Math.min(dt, 1 / 30);
     const drag = 1.7, damping = 0.965, g = -9.8;
     for (let si = 0; si < this.strands.length; si++) {
@@ -445,6 +446,8 @@ export class Cloth {
       for (let k = 0; k < this.N; k++) { v.copy(this.local[k]).applyMatrix4(M); P[k * 3] = Q[k * 3] = v.x; P[k * 3 + 1] = Q[k * 3 + 1] = v.y; P[k * 3 + 2] = Q[k * 3 + 2] = v.z; }
       this.needsReset = false;
     }
+    if (!(dt > 1e-4)) return; // zero-length frame: nothing to simulate (and no divide by zero)
+    if (!Number.isFinite(P[P.length - 1])) { this.needsReset = true; return; }
     const h = Math.min(dt, 1 / 30);
     const WN = this.worldNormals;
     for (let k = 0; k < this.N; k++) {
