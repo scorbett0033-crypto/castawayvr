@@ -396,3 +396,100 @@ export function softDot(color = "255,255,255") {
     ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 64);
   });
 }
+
+/* ---------- canvas-painted detail textures ---------- */
+function rngCanvas(w, h) { const c = document.createElement("canvas"); c.width = w; c.height = h; return [c, c.getContext("2d", { willReadFrequently: true })]; }
+
+// Hair card: many fine strands, opaque at the root, thinning out to wispy tips (alpha).
+export function hairStrandTexture() {
+  const [c, ctx] = rngCanvas(256, 512);
+  const r = mulberry32(77);
+  for (let i = 0; i < 420; i++) {
+    const x0 = r() * 256, len = 0.55 + r() * 0.45, w = 0.6 + r() * 1.6, g = 150 + r() * 105;
+    const wave = (r() - 0.5) * 6, ph = r() * 6;
+    const grad = ctx.createLinearGradient(0, 0, 0, 512 * len);
+    grad.addColorStop(0, `rgba(${g},${g},${g},${0.85 + r() * 0.15})`);
+    grad.addColorStop(0.75, `rgba(${g},${g},${g},${0.6 + r() * 0.3})`);
+    grad.addColorStop(1, `rgba(${g},${g},${g},0)`);
+    ctx.strokeStyle = grad; ctx.lineWidth = w; ctx.beginPath();
+    for (let y = 0; y <= 512 * len; y += 16) { const x = x0 + Math.sin(y / 60 + ph) * wave + (y / 512) * (r() - 0.5) * 4; y ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+    ctx.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace; t.flipY = false; t.wrapS = THREE.RepeatWrapping; t.anisotropy = 8;
+  return t;
+}
+
+// Light wear: fine scratches, scuffs and tiny chips on otherwise clean surfaces.
+export function scratchSet(seed = 5, size = 1024) {
+  const r = mulberry32(seed);
+  const [c, ctx] = rngCanvas(size, size);
+  ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, size, size);
+  const [rc, rctx] = rngCanvas(size, size);
+  rctx.fillStyle = "rgb(70,70,70)"; rctx.fillRect(0, 0, size, size); // base roughness ~0.27
+  const [hc, hctx] = rngCanvas(size, size);
+  hctx.fillStyle = "rgb(128,128,128)"; hctx.fillRect(0, 0, size, size);
+  const line = (x, y, len, ang, wdt, a, curve) => {
+    for (const [cx, col, w2] of [[ctx, `rgba(90,90,95,${a})`, wdt], [rctx, `rgba(190,190,190,${a * 1.6})`, wdt * 1.4], [hctx, `rgba(60,60,60,${a * 2})`, wdt]]) {
+      cx.strokeStyle = col; cx.lineWidth = w2; cx.beginPath(); cx.moveTo(x, y);
+      cx.quadraticCurveTo(x + Math.cos(ang) * len * 0.5 + curve, y + Math.sin(ang) * len * 0.5 - curve, x + Math.cos(ang) * len, y + Math.sin(ang) * len);
+      cx.stroke();
+    }
+  };
+  for (let i = 0; i < 260; i++) line(r() * size, r() * size, 10 + r() * 90, r() * 6.28, 0.5 + r() * 0.8, 0.08 + r() * 0.18, (r() - 0.5) * 12);
+  for (let k = 0; k < 14; k++) { // clusters of parallel scuffs
+    const x = r() * size, y = r() * size, ang = r() * 6.28;
+    for (let i = 0; i < 10; i++) line(x + (r() - 0.5) * 30, y + (r() - 0.5) * 30, 30 + r() * 60, ang + (r() - 0.5) * 0.15, 0.6, 0.06 + r() * 0.08, 0);
+  }
+  for (let i = 0; i < 40; i++) { // tiny chips
+    const x = r() * size, y = r() * size, s = 1 + r() * 2.5;
+    ctx.fillStyle = "rgba(120,120,125,0.35)"; ctx.beginPath(); ctx.arc(x, y, s, 0, 7); ctx.fill();
+    hctx.fillStyle = "rgba(40,40,40,0.6)"; hctx.beginPath(); hctx.arc(x, y, s, 0, 7); hctx.fill();
+  }
+  for (let i = 0; i < 18; i++) { // soft scuff marks (slightly rougher, barely darker)
+    const x = r() * size, y = r() * size, rad = 20 + r() * 50;
+    const g = rctx.createRadialGradient(x, y, 0, x, y, rad); g.addColorStop(0, "rgba(150,150,150,0.35)"); g.addColorStop(1, "rgba(150,150,150,0)");
+    rctx.fillStyle = g; rctx.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+    const g2 = ctx.createRadialGradient(x, y, 0, x, y, rad); g2.addColorStop(0, "rgba(0,0,0,0.035)"); g2.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g2; ctx.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+  }
+  // height -> normal
+  const hd = hctx.getImageData(0, 0, size, size).data;
+  const h = new Float32Array(size * size);
+  for (let i = 0; i < h.length; i++) h[i] = hd[i * 4] / 255;
+  const mk = (canvas, srgb) => { const t = new THREE.CanvasTexture(canvas); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; if (srgb) t.colorSpace = THREE.SRGBColorSpace; return t; };
+  const rgh = rctx.getImageData(0, 0, size, size);
+  for (let i = 0; i < rgh.data.length; i += 4) { rgh.data[i + 2] = 0; } // G = roughness, B = metalness 0
+  rctx.putImageData(rgh, 0, 0);
+  return { map: mk(c, true), roughnessMap: mk(rc, false), normalMap: dataTex(normalFromHeight(h, size, 1.2), size, false) };
+}
+
+// Snake-plant leaf: dark green with wavy pale cross-bands and yellow margins.
+export function leafTexture() {
+  const [c, ctx] = rngCanvas(128, 512);
+  const r = mulberry32(31);
+  const g = ctx.createLinearGradient(0, 0, 128, 0);
+  g.addColorStop(0, "#c8b84a"); g.addColorStop(0.09, "#c9b94e"); g.addColorStop(0.13, "#2f5a2a"); g.addColorStop(0.5, "#24461f"); g.addColorStop(0.87, "#2f5a2a"); g.addColorStop(0.91, "#c9b94e"); g.addColorStop(1, "#c8b84a");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, 128, 512);
+  for (let y = 0; y < 512; y += 7 + r() * 9) {
+    ctx.strokeStyle = `rgba(${150 + r() * 40},${180 + r() * 30},${130 + r() * 30},${0.25 + r() * 0.25})`;
+    ctx.lineWidth = 1.5 + r() * 3; ctx.beginPath();
+    for (let x = 16; x <= 112; x += 6) { const yy = y + Math.sin(x / 9 + y) * 3; x === 16 ? ctx.moveTo(x, yy) : ctx.lineTo(x, yy); }
+    ctx.stroke();
+  }
+  for (let i = 0; i < 60; i++) { ctx.fillStyle = `rgba(20,40,18,${r() * 0.25})`; ctx.fillRect(16 + r() * 96, r() * 512, 1, 20 + r() * 80); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+  return t;
+}
+
+// Potting soil with bark chips and small pebbles.
+export function soilTexture() {
+  const [c, ctx] = rngCanvas(512, 512);
+  const r = mulberry32(17);
+  ctx.fillStyle = "#3a2a1e"; ctx.fillRect(0, 0, 512, 512);
+  for (let i = 0; i < 9000; i++) { const s = r() * 3; const v = 30 + r() * 40; ctx.fillStyle = `rgb(${v + 12},${v},${v - 10})`; ctx.fillRect(r() * 512, r() * 512, s, s); }
+  for (let i = 0; i < 160; i++) { ctx.fillStyle = `rgb(${90 + r() * 40},${60 + r() * 25},${35 + r() * 20})`; ctx.save(); ctx.translate(r() * 512, r() * 512); ctx.rotate(r() * 6); ctx.fillRect(-6, -2, 6 + r() * 10, 2 + r() * 3); ctx.restore(); }
+  for (let i = 0; i < 90; i++) { const v = 120 + r() * 80; ctx.fillStyle = `rgb(${v},${v - 5},${v - 12})`; ctx.beginPath(); ctx.arc(r() * 512, r() * 512, 1.5 + r() * 3, 0, 7); ctx.fill(); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}

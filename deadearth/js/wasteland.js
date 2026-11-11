@@ -141,8 +141,10 @@ export function buildWasteland(renderer, T) {
       for (let c = 0; c < ncol; c++) {
         const mid = wl.a + cw * (c + 0.5);
         const top = Math.max(0.6, breakTop + Math.sin(c * 1.7 + wi) * 1.2 + (rnd() - 0.5) * 1.6);
+        let colTop = -1; // highest concrete actually built in this column
         const piece = (y0, y1) => {
           y1 = Math.min(y1, top); if (y1 - y0 < 0.05) return;
+          colTop = Math.max(colTop, y1);
           const sz = [wl.ax === "x" ? cw : TH, y1 - y0, wl.ax === "x" ? TH : cw];
           const pos = [wl.ax === "x" ? mid : wl.fixed, base + (y0 + y1) / 2, wl.ax === "x" ? wl.fixed : mid];
           B.box("concrete", sz[0], sz[1], sz[2], pos, [0, 0, 0], UVo);
@@ -159,11 +161,14 @@ export function buildWasteland(renderer, T) {
           if (win) { piece(f === 0 ? -1 : y, y + 1.0); if (top >= y + FH) piece(y + 2.2, y + FH); }
           else piece(f === 0 ? -1 : y, y + FH);
         }
-        if (top < floors * FH && rnd() < 0.7) {
+        // exposed rebar only where the broken concrete really ends (never floating over doors/windows)
+        if (colTop > 0.5 && colTop >= top - 0.05 && top < floors * FH && rnd() < 0.7) {
           for (let k = 0; k < 3; k++) {
-            const off = (k - 1) * cw * 0.3;
-            const p = wl.ax === "x" ? [mid + off, base + top + 0.3, wl.fixed] : [wl.fixed, base + top + 0.3, mid + off];
-            B.cyl("rust", 0.012, 0.012, 0.6 + rnd() * 0.6, 4, p, [(rnd() - 0.5) * 0.7, 0, (rnd() - 0.5) * 0.7]);
+            const off = (k - 1) * cw * 0.3, L = 0.35 + rnd() * 0.5;
+            const tilt = [(rnd() - 0.5) * 0.5, 0, (rnd() - 0.5) * 0.5];
+            const y = base + colTop + L / 2 - 0.12; // bottom end stays buried in the wall
+            const p = wl.ax === "x" ? [mid + off, y, wl.fixed] : [wl.fixed, y, mid + off];
+            B.cyl("rust", 0.009, 0.009, L, 5, p, tilt);
           }
         }
       }

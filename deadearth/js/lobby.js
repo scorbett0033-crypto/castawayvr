@@ -2,8 +2,8 @@
 // Sittable benches, the armory, the wardrobe and the blue arena portal that
 // leads to the only place the Earth is dead: the fighting arena.
 import * as THREE from "three";
-import { Builder, mat4, mulberry32 } from "./utils.js";
-import { withRepeat, canvasTex, softDot } from "./textures.js";
+import { Builder, mat4, mulberry32, worldUV, mergeGeos } from "./utils.js";
+import { withRepeat, canvasTex, softDot, scratchSet, leafTexture, soilTexture } from "./textures.js";
 import { makeSky, Wind } from "./sky.js";
 import { Human } from "./human.js";
 import { buildGun, WEAPONS } from "./weapons.js";
@@ -37,6 +37,49 @@ function towerTex() {
   });
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   return t;
+}
+
+// Snake plant (Sansevieria): upright sword leaves with a V-fold, pale cross-bands and yellow margins.
+function leafGeometry(h, w, dirA, lean, twist) {
+  const SEG = 16, pos = [], uv = [], idx = [];
+  const dir = new THREE.Vector3(Math.cos(dirA), 0, Math.sin(dirA));
+  for (let i = 0; i <= SEG; i++) {
+    const t = i / SEG;
+    const width = w * Math.pow(Math.sin(Math.PI * Math.min(1, 0.1 + t * 0.92)), 0.65) * (1 - Math.pow(t, 6)) + 0.002;
+    const c = dir.clone().multiplyScalar(lean * h * t * t).setY(t * h);
+    const a = dirA + Math.PI / 2 + twist * t;
+    const side = new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
+    const face = new THREE.Vector3().crossVectors(side, new THREE.Vector3(0, 1, 0)).normalize();
+    const L = c.clone().addScaledVector(side, -width / 2), R = c.clone().addScaledVector(side, width / 2), M = c.clone().addScaledVector(face, width * 0.18);
+    pos.push(L.x, L.y, L.z, M.x, M.y, M.z, R.x, R.y, R.z);
+    uv.push(0, t, 0.5, t, 1, t);
+    if (i < SEG) { const b = i * 3, n = b + 3; idx.push(b, b + 1, n, b + 1, n + 1, n, b + 1, b + 2, n + 1, b + 2, n + 2, n + 1); }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx); g.computeVertexNormals();
+  return g;
+}
+function makePlant(rnd, leafMat, soilMat, potMat) {
+  const g = new THREE.Group();
+  const prof = [[0.0, 0.0], [0.33, 0.0], [0.35, 0.02], [0.43, 0.55], [0.46, 0.565], [0.46, 0.6], [0.425, 0.6], [0.41, 0.56]].map(([r, y]) => new THREE.Vector2(r, y));
+  const pot = new THREE.Mesh(new THREE.LatheGeometry(prof, 48), potMat);
+  pot.castShadow = pot.receiveShadow = true; g.add(pot);
+  const soil = new THREE.Mesh(new THREE.CircleGeometry(0.415, 40), soilMat);
+  soil.rotation.x = -Math.PI / 2; soil.position.y = 0.55; soil.receiveShadow = true; g.add(soil);
+  const leaves = [];
+  const n = 16 + Math.floor(rnd() * 6);
+  for (let i = 0; i < n; i++) {
+    const a = rnd() * Math.PI * 2, rr = 0.03 + Math.sqrt(rnd()) * 0.2;
+    const h = 0.45 + rnd() * 0.55 * (1 - rr * 2.2);
+    const lg = leafGeometry(h, 0.055 + rnd() * 0.035, a + (rnd() - 0.5) * 0.6, 0.06 + rr * 0.6 + rnd() * 0.1, (rnd() - 0.5) * 1.6);
+    lg.translate(Math.cos(a) * rr, 0.53, Math.sin(a) * rr);
+    leaves.push(lg);
+  }
+  const lm = new THREE.Mesh(mergeGeos(leaves), leafMat);
+  lm.castShadow = true; lm.receiveShadow = true; g.add(lm);
+  return g;
 }
 
 // futuristic bench, same seat geometry as before: sitter faces +Z, seat top y=0.45, seats x=-0.6,0,0.6
@@ -75,7 +118,7 @@ export function buildLobby(renderer, T, sfx, WM) {
     glowSoft: new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0x9fe8ff, emissiveIntensity: 1.2 }),
     lightPanel: new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xf4f8ff, emissiveIntensity: 2.2 }),
     glass: new THREE.MeshStandardMaterial({ color: 0xbfd8e8, metalness: 0.1, roughness: 0.02, transparent: true, opacity: 0.08, depthWrite: false, envMapIntensity: 2 }),
-    pot: new THREE.MeshStandardMaterial({ color: 0xe8ebee, roughness: 0.35 }),
+    pot: new THREE.MeshStandardMaterial({ color: 0xe9e6e0, roughness: 1 }),
     leaf: new THREE.MeshStandardMaterial({ color: 0x3f7a3a, roughness: 0.8 }),
     soil: new THREE.MeshStandardMaterial({ color: 0x2c2218, roughness: 1 }),
     grass: new THREE.MeshStandardMaterial({ ...withRepeat(T.grass, 220, 220), roughness: 1 }),
@@ -86,6 +129,15 @@ export function buildLobby(renderer, T, sfx, WM) {
     tree: new THREE.MeshStandardMaterial({ color: 0x4f8a42, roughness: 0.9, flatShading: true }),
   };
 
+  // light wear on the furniture: fine scratches, scuffs and chips only
+  const WEAR = scratchSet(5);
+  Object.assign(M.shell, { map: WEAR.map, roughnessMap: WEAR.roughnessMap, normalMap: WEAR.normalMap, roughness: 1, normalScale: new THREE.Vector2(0.6, 0.6) });
+  Object.assign(M.dark, { roughnessMap: WEAR.roughnessMap, normalMap: WEAR.normalMap, roughness: 1.1, normalScale: new THREE.Vector2(0.5, 0.5) });
+  Object.assign(M.pot, { map: WEAR.map, roughnessMap: WEAR.roughnessMap, normalMap: WEAR.normalMap, roughness: 2.2, normalScale: new THREE.Vector2(0.4, 0.4) });
+  const plantMats = {
+    leaf: new THREE.MeshStandardMaterial({ map: leafTexture(), roughness: 0.5, side: THREE.DoubleSide }),
+    soil: new THREE.MeshStandardMaterial({ map: soilTexture(), roughness: 1 }),
+  };
   const B = new Builder();
   const UV = { worldUV: 0.3 };
   /* ---------- shell ---------- */
@@ -126,12 +178,9 @@ export function buildLobby(renderer, T, sfx, WM) {
   // planters with shrubs
   const planters = [[-10.6, 7.6], [10.6, 7.6], [-3.6, -7.6], [3.6, -7.6], [-6, 0], [6, 0]];
   for (const [px, pz] of planters) {
-    B.cyl("pot", 0.45, 0.38, 0.6, 28, [px, 0.3, pz]);
-    B.cyl("soil", 0.42, 0.42, 0.02, 28, [px, 0.59, pz]);
-    for (let k = 0; k < 7; k++) {
-      const a = (k / 7) * Math.PI * 2, r = k ? 0.22 : 0;
-      B.add("leaf", new THREE.IcosahedronGeometry(0.22 + rnd() * 0.1, 1), mat4([px + Math.cos(a) * r, 0.78 + rnd() * 0.25 + (k ? 0 : 0.3), pz + Math.sin(a) * r], [rnd() * 3, rnd() * 3, 0]));
-    }
+    const plant = makePlant(rnd, plantMats.leaf, plantMats.soil, M.pot);
+    plant.position.set(px, 0, pz); plant.rotation.y = rnd() * 6;
+    scene.add(plant);
   }
 
   /* ---------- benches (same seat layout as before) ---------- */
@@ -142,6 +191,7 @@ export function buildLobby(renderer, T, sfx, WM) {
   benchDefs.push([10.6, 5.2, -Math.PI / 2]);
   for (const [bx, bz, r] of benchDefs) addBench(BB, bx, bz, r);
   const benches = BB.build(M);
+  benches.children.forEach((mesh) => { if (mesh.name === "shell" || mesh.name === "cushion") worldUV(mesh.geometry, 0.8); });
   benches.children.forEach((m) => (m.userData.bench = true));
   scene.add(benches);
   const seats = [];
@@ -264,6 +314,7 @@ export function buildLobby(renderer, T, sfx, WM) {
   B.box("dark", 1.6, 1.0, 0.7, [-9.5, 0.5, z1 - 0.5]); // drinks bar
   B.box("glowSoft", 1.6, 0.02, 0.02, [-9.5, 1.0, z1 - 0.86]);
   const shell = B.build(M);
+  shell.children.forEach((mesh) => { if (mesh.name === "shell" || mesh.name === "dark") worldUV(mesh.geometry, 0.8); });
   scene.add(shell);
 
   // holo info board with the controls
@@ -365,8 +416,8 @@ export function buildLobby(renderer, T, sfx, WM) {
 
   /* ---------- people of the hub ---------- */
   const citizen = (i) => [
-    { body: "male", outfit: "m_suit" }, { body: "female", outfit: "f_medic" },
-    { body: "male", outfit: "m_bluetee", cloth: "scarf" }, { body: "female", outfit: "f_greentee" },
+    { body: "male", outfit: "m_suit", hair: "natural" }, { body: "female", outfit: "f_medic", hair: "natural" },
+    { body: "male", outfit: "m_bluetee", hair: "natural" }, { body: "female", outfit: "f_greentee", hair: "natural" },
   ][i % 4];
   const npcs = [];
   [1, 5, 13, 15].forEach((seatIdx, i) => {
@@ -379,7 +430,7 @@ export function buildLobby(renderer, T, sfx, WM) {
     scene.add(a.root);
     npcs.push(a);
   });
-  const qm = new Human(T, { body: "male", outfit: "m_oxford" }, { quality: 0.45 });
+  const qm = new Human(T, { body: "male", outfit: "m_oxford", hair: "natural" }, { quality: 0.45 });
   qm.root.position.set(10.5, 0, -2.6); qm.root.rotation.y = -Math.PI / 2;
   scene.add(qm.root); npcs.push(qm);
   const preview = new Human(T, {}, { quality: 1 });

@@ -5,7 +5,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "./vendor/loaders/GLTFLoader.js";
 import * as SkeletonUtils from "./vendor/utils/SkeletonUtils.js";
-import { Avatar, HairSystem, CLOTH_ITEMS, HAIR_COLORS, HAIR_STYLES, DEFAULT_LOOK, outfitFor, defaultOutfit, faceFor } from "./avatar.js";
+import { Avatar, HairSystem, CLOTH_ITEMS, HAIR_COLORS, HAIR_STYLES, PANTS, DEFAULT_LOOK, outfitFor, defaultOutfit, faceFor } from "./avatar.js";
 
 const BASE = new URL("../models/", import.meta.url).href;
 const loader = new GLTFLoader();
@@ -46,6 +46,7 @@ function sanitize(look) {
   if (outfitFor(L).id !== L.outfit) L.outfit = defaultOutfit(L.body);
   L.face = faceFor(L);
   if (!HAIR_STYLES.find((h) => h.id === L.hair)) L.hair = "natural";
+  if (!PANTS.find((p) => p.id === L.pants)) L.pants = "orig";
   if (!HAIR_COLORS.find((h) => h.id === L.hairColor)) L.hairColor = "natural";
   return L;
 }
@@ -59,15 +60,27 @@ function headInfo(name) {
   const head = scene.getObjectByName(BONES.head);
   let info = { local: head.worldToLocal(head.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.09, 0.015))), r: 0.095 };
   const box = new THREE.Box3(), v = new THREE.Vector3();
+  const tone = skinTone(name) || [200, 160, 140], ts = tone[0] + tone[1] + tone[2], tr = tone[0] / ts, tg = tone[1] / ts;
+  let texData = null, TW = 0, TH = 0;
   scene.traverse((sm) => {
     if (!sm.isSkinnedMesh) return;
     const mats = Array.isArray(sm.material) ? sm.material : [sm.material];
+    if (!texData && mats[0].name === "head" && mats[0].map) {
+      const img = mats[0].map.image; TW = img.width; TH = img.height;
+      const c = document.createElement("canvas"); c.width = TW; c.height = TH;
+      const x = c.getContext("2d", { willReadFrequently: true }); x.drawImage(img, 0, 0); texData = x.getImageData(0, 0, TW, TH).data;
+    }
     const g = sm.geometry, hi = sm.skeleton.bones.indexOf(head);
     const pos = g.attributes.position, si = g.attributes.skinIndex, sw = g.attributes.skinWeight;
     const ranges = g.groups.length ? g.groups.filter((grp) => mats[grp.materialIndex]?.name === "head") : (mats[0].name === "head" ? [{ start: 0, count: g.index ? g.index.count : pos.count }] : []);
     for (const grp of ranges) for (let n = grp.start; n < grp.start + grp.count; n++) {
       const i = g.index ? g.index.getX(n) : n;
       const idx = [si.getX(i), si.getY(i), si.getZ(i), si.getW(i)], wt = [sw.getX(i), sw.getY(i), sw.getZ(i), sw.getW(i)];
+      if (texData && g.attributes.uv) { // skin texels only, so hair volume doesn't inflate the skull
+        const ux = Math.min(TW - 1, Math.max(0, Math.round(g.attributes.uv.getX(i) * TW))), uy = Math.min(TH - 1, Math.max(0, Math.round(g.attributes.uv.getY(i) * TH)));
+        const o = (uy * TW + ux) * 4, su = texData[o] + texData[o + 1] + texData[o + 2] + 1e-3;
+        if (Math.abs(texData[o] / su - tr) + Math.abs(texData[o + 1] / su - tg) > 0.045 || su / ts < 0.55) continue;
+      }
       for (let k = 0; k < 4; k++) if (idx[k] === hi && wt[k] > 0.6) { box.expandByPoint(sm.getVertexPosition(i, v).applyMatrix4(sm.matrixWorld)); break; }
     }
   });
@@ -75,14 +88,265 @@ function headInfo(name) {
     if (!box.isEmpty()) {
       const sz = box.getSize(new THREE.Vector3());
       const r = THREE.MathUtils.clamp(sz.x / 2, 0.075, 0.12);
-      const c = box.getCenter(new THREE.Vector3()); c.y = box.max.y - r * 1.02; c.z -= 0.01;
-      info = { local: head.worldToLocal(c), r };
+      const bc = box.getCenter(new THREE.Vector3());
+      const c = bc.clone(); c.y = box.max.y - r * 1.02; c.z -= 0.01;
+      info = { off: bc.clone().sub(c), size: sz.clone(), top: box.max.y - c.y, local: head.worldToLocal(c), r };
     }
   }
   headCache.set(name, info);
   return info;
 }
 const HEAD_PARTS = ["head", "opacity", "helmet"];
+
+/* ---------- bald: paint the model's painted-on hair over with its own scalp skin ---------- */
+const baldCache = new Map();
+function canvasTexFrom(cv, like, srgb) {
+  const t = new THREE.CanvasTexture(cv);
+  t.flipY = like.flipY; t.wrapS = like.wrapS; t.wrapT = like.wrapT; t.anisotropy = 8;
+  t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+  return t;
+}
+function baldHeadMaps(modelName) {
+  if (baldCache.has(modelName)) return baldCache.get(modelName);
+  const src = ready.get(modelName).scene;
+  src.updateMatrixWorld(true);
+  const heads = [];
+  src.traverse((o) => { if (o.isSkinnedMesh) { const m = Array.isArray(o.material) ? o.material[0] : o.material; if (m.name === "head") heads.push([o, m]); } });
+  const mat = heads[0] && heads[0][1];
+  if (!mat || !mat.map) { baldCache.set(modelName, null); return null; }
+  const info = headInfo(modelName);
+  const center = src.getObjectByName(BONES.head).localToWorld(info.local.clone());
+  const img = mat.map.image, W = img.width, H = img.height;
+  const mask = document.createElement("canvas"); mask.width = W; mask.height = H;
+  const mctx = mask.getContext("2d"); mctx.fillStyle = "#fff"; mctx.beginPath();
+  const v = new THREE.Vector3();
+  for (const [sm] of heads) {
+    const g = sm.geometry, pos = g.attributes.position, uv = g.attributes.uv, ix = g.index;
+    const scalp = scalpVerts(modelName, sm);
+    const n = ix ? ix.count : pos.count;
+    for (let t = 0; t < n; t += 3) {
+      const a = ix ? ix.getX(t) : t, b = ix ? ix.getX(t + 1) : t + 1, c = ix ? ix.getX(t + 2) : t + 2;
+      if (scalp[a] + scalp[b] + scalp[c] < 2) continue;
+      mctx.moveTo(uv.getX(a) * W, uv.getY(a) * H); mctx.lineTo(uv.getX(b) * W, uv.getY(b) * H); mctx.lineTo(uv.getX(c) * W, uv.getY(c) * H); mctx.closePath();
+    }
+  }
+  mctx.fill();
+  const soft = document.createElement("canvas"); soft.width = W; soft.height = H;
+  const sctx = soft.getContext("2d", { willReadFrequently: true });
+  sctx.filter = `blur(${Math.max(4, W / 70)}px)`; sctx.drawImage(mask, 0, 0); sctx.drawImage(mask, 0, 0); sctx.filter = "none"; sctx.drawImage(mask, 0, 0);
+  {
+    // weight = core triangles, plus the halo around them where the texel looks like hair (not skin)
+    const tone0 = skinTone(modelName) || [200, 160, 140], ts = tone0[0] + tone0[1] + tone0[2], tr = tone0[0] / ts, tg = tone0[1] / ts;
+    const cv0 = document.createElement("canvas"); cv0.width = W; cv0.height = H;
+    const c0 = cv0.getContext("2d", { willReadFrequently: true }); c0.drawImage(img, 0, 0);
+    const px = c0.getImageData(0, 0, W, H).data;
+    const sd = sctx.getImageData(0, 0, W, H);
+    const md = mask.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, W, H).data;
+    for (let i = 0; i < px.length; i += 4) {
+      const halo = sd.data[i + 3] / 255;
+      if (halo <= 0) { sd.data[i + 3] = 0; continue; }
+      const sum = px[i] + px[i + 1] + px[i + 2] + 1e-3;
+      const chroma = Math.abs(px[i] / sum - tr) + Math.abs(px[i + 1] / sum - tg), lum = sum / ts;
+      const hairness = Math.min(1, Math.max(0, (chroma - 0.02) / 0.035, (0.75 - lum) / 0.25, (lum - 1.35) / 0.2));
+      const core = md[i + 3] / 255;
+      sd.data[i] = sd.data[i + 1] = sd.data[i + 2] = 255;
+      sd.data[i + 3] = 255 * Math.max(core, Math.min(1, halo * 1.6) * hairness);
+    }
+    sctx.putImageData(sd, 0, 0);
+  }
+  const masked = (base, paint) => {
+    const out = document.createElement("canvas"); out.width = W; out.height = H;
+    const o = out.getContext("2d"); o.drawImage(base, 0, 0, W, H);
+    const layer = document.createElement("canvas"); layer.width = W; layer.height = H;
+    const l = layer.getContext("2d"); paint(l);
+    l.globalCompositeOperation = "destination-in"; l.drawImage(soft, 0, 0);
+    o.drawImage(layer, 0, 0);
+    return out;
+  };
+  const tone = skinTone(modelName) || [200, 160, 140];
+  const sk = `rgb(${tone[0] * 0.97 | 0},${tone[1] * 0.95 | 0},${tone[2] * 0.95 | 0})`;
+  const rnd = mulberry(modelName.length * 31);
+  const color = masked(img, (l) => {
+    l.fillStyle = sk; l.fillRect(0, 0, W, H);
+    for (let i = 0; i < W * 6; i++) { const a = 0.04 + rnd() * 0.06; l.fillStyle = `rgba(${tone[0] * 0.6 | 0},${tone[1] * 0.5 | 0},${tone[2] * 0.45 | 0},${a})`; const sz = 1 + rnd() * W / 400; l.fillRect(rnd() * W, rnd() * H, sz, sz); } // pores / shaved stubble
+    for (let i = 0; i < 14; i++) { const x = rnd() * W, y = rnd() * H, r = W / 12 + rnd() * W / 8; const gr = l.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, "rgba(255,240,230,0.08)"); gr.addColorStop(1, "rgba(255,240,230,0)"); l.fillStyle = gr; l.fillRect(x - r, y - r, r * 2, r * 2); }
+  });
+  const res = { map: canvasTexFrom(color, mat.map, true) };
+  if (mat.normalMap) res.normalMap = canvasTexFrom(masked(mat.normalMap.image, (l) => { l.fillStyle = "rgb(128,128,255)"; l.fillRect(0, 0, W, H); }), mat.normalMap, false);
+  if (mat.roughnessMap) res.roughnessMap = canvasTexFrom(masked(mat.roughnessMap.image, (l) => { l.fillStyle = "rgb(140,140,0)"; l.fillRect(0, 0, W, H); }), mat.roughnessMap, false);
+  baldCache.set(modelName, res);
+  return res;
+}
+function mulberry(seed) { let a = seed >>> 0; return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+
+/* ---------- per-vertex head analysis (rest pose): position vs skull + is the texel hair-coloured ---------- */
+const vinfoCache = new WeakMap();
+function headVertexInfo(modelName, srcMesh) {
+  const key = srcMesh.geometry.attributes.position;
+  if (vinfoCache.has(key)) return vinfoCache.get(key);
+  const src = ready.get(modelName).scene; src.updateMatrixWorld(true);
+  const info = headInfo(modelName);
+  const center = src.getObjectByName(BONES.head).localToWorld(info.local.clone());
+  const mat = Array.isArray(srcMesh.material) ? srcMesh.material[0] : srcMesh.material;
+  const img = mat.map.image, W = img.width, H = img.height;
+  const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+  const cx = cv.getContext("2d", { willReadFrequently: true }); cx.drawImage(img, 0, 0);
+  const px = cx.getImageData(0, 0, W, H).data;
+  const tone = skinTone(modelName) || [200, 160, 140];
+  const ts = tone[0] + tone[1] + tone[2], tr = tone[0] / ts, tg = tone[1] / ts;
+  const g = srcMesh.geometry, pos = g.attributes.position, uv = g.attributes.uv;
+  const n = pos.count, v = new THREE.Vector3();
+  const res = { dx: new Float32Array(n), dy: new Float32Array(n), dz: new Float32Array(n), dist: new Float32Array(n), ry: new Float32Array(n), hr: new Float32Array(n), hairCol: new Uint8Array(n) };
+  for (let i = 0; i < n; i++) {
+    srcMesh.getVertexPosition(i, v).applyMatrix4(srcMesh.matrixWorld).sub(center);
+    res.ry[i] = v.y / info.r; res.hr[i] = Math.hypot(v.x, v.z) / info.r;
+    const d = v.length(); res.dist[i] = d / info.r; v.divideScalar(d || 1);
+    res.dx[i] = v.x; res.dy[i] = v.y; res.dz[i] = v.z;
+    const x = Math.min(W - 1, Math.max(0, Math.round(uv.getX(i) * W))), y = Math.min(H - 1, Math.max(0, Math.round(uv.getY(i) * H)));
+    const o = (y * W + x) * 4, sum = px[o] + px[o + 1] + px[o + 2] + 1e-3;
+    const chroma = Math.abs(px[o] / sum - tr) + Math.abs(px[o + 1] / sum - tg), lum = sum / ts;
+    res.hairCol[i] = chroma > 0.045 || lum < 0.55 || lum > 1.5 ? 1 : 0;
+  }
+  vinfoCache.set(key, res);
+  return res;
+}
+// separate hair pieces: mesh parts not welded to the skull whose texels are mostly hair
+const compCache = new WeakMap();
+function hairComponents(modelName, srcMesh) {
+  const key = srcMesh.geometry.attributes.position;
+  if (compCache.has(key)) return compCache.get(key);
+  const I = headVertexInfo(modelName, srcMesh);
+  const g = srcMesh.geometry, pos = g.attributes.position, ix = g.index, n = pos.count;
+  // weld vertices that share a position (UV seams split them), then union along triangles
+  const parent = new Int32Array(n); for (let i = 0; i < n; i++) parent[i] = i;
+  const find = (a) => { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; };
+  const unite = (a, b) => { a = find(a); b = find(b); if (a !== b) parent[b] = a; };
+  const weld = new Map();
+  for (let i = 0; i < n; i++) {
+    const k = `${Math.round(pos.getX(i) * 2e4)},${Math.round(pos.getY(i) * 2e4)},${Math.round(pos.getZ(i) * 2e4)}`;
+    if (weld.has(k)) unite(weld.get(k), i); else weld.set(k, i);
+  }
+  const m = ix ? ix.count : n;
+  for (let t = 0; t < m; t += 3) { const a = ix ? ix.getX(t) : t; unite(a, ix ? ix.getX(t + 1) : t + 1); unite(a, ix ? ix.getX(t + 2) : t + 2); }
+  const stats = new Map();
+  for (let i = 0; i < n; i++) {
+    const r = find(i); let st = stats.get(r);
+    if (!st) stats.set(r, (st = { n: 0, hair: 0, dx: 0, dy: 0, dz: 0 }));
+    st.n++; st.hair += I.hairCol[i]; st.dx += I.dx[i]; st.dy += I.dy[i]; st.dz += I.dz[i];
+  }
+  let biggest = 0; for (const st of stats.values()) biggest = Math.max(biggest, st.n);
+  const remove = new Set();
+  for (const [r, st] of stats) {
+    if (st.n === biggest) continue; // the skull + face itself
+    const cx = st.dx / st.n, cy = st.dy / st.n, cz = st.dz / st.n;
+    const frontFeature = cz > 0.45 && Math.abs(cx) < 0.6 && cy < 0.35; // eyes, teeth, tongue
+    if (!frontFeature && st.hair / st.n > 0.55) remove.add(r);
+  }
+  const out = new Uint8Array(n);
+  for (let i = 0; i < n; i++) if (remove.has(find(i))) out[i] = 1;
+  compCache.set(key, out);
+  return out;
+}
+// hair that sticks out of the head (shells / hanging locks): delete when not wearing natural hair
+function hairVerts(modelName, srcMesh) {
+  const I = headVertexInfo(modelName, srcMesh), n = I.dist.length, out = hairComponents(modelName, srcMesh).slice();
+  for (let i = 0; i < n; i++) {
+    if (!I.hairCol[i]) continue;
+    const face = (I.dz[i] > 0.3 && Math.abs(I.dx[i]) < 0.6 && I.dy[i] < 0.62) || (I.dz[i] > 0.55 && I.dy[i] < 0.62);
+    const jaw = I.ry[i] < -0.55 && I.dz[i] > 0.15 && I.hr[i] < 0.95;
+    const ear = Math.abs(I.dx[i]) > 0.72 && Math.abs(I.dy[i]) < 0.32 && I.dz[i] > -0.35 && I.dz[i] < 0.45 && I.dist[i] < 1.25;
+    if (face || jaw || ear) continue;
+    if (I.ry[i] > -0.45) { if (I.dist[i] > 1.07) out[i] = 1; }        // volume standing off the skull
+    else if (I.hr[i] > 0.85) out[i] = 1;                              // locks hanging past the neck
+    if (Math.abs(I.dx[i]) > 0.6 && I.hr[i] > 1.04 && I.ry[i] > -1.8) out[i] = 1; // locks framing the face
+  }
+  return out;
+}
+// the whole hair-covered part of the skull (direction only): replaced by a clean dome when bald
+function scalpRegion(modelName, srcMesh) {
+  const I = headVertexInfo(modelName, srcMesh), n = I.dist.length, out = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    const front = I.dz[i] > 0.4 && I.dy[i] < 0.58;
+    const ear = Math.abs(I.dx[i]) > 0.72 && Math.abs(I.dy[i]) < 0.32 && I.dz[i] > -0.35 && I.dz[i] < 0.45 && I.dist[i] < 1.25;
+    if (front || ear || I.ry[i] < -0.5) continue;
+    if (I.dy[i] > 0.3 || (I.dz[i] < -0.15 && I.dy[i] > -0.3) || (Math.abs(I.dx[i]) > 0.6 && I.dy[i] > 0.1 && I.dz[i] < 0.35)) out[i] = 1;
+  }
+  return out;
+}
+// skull vertices with painted-on hair: repaint with scalp skin
+function scalpVerts(modelName, srcMesh) {
+  const I = headVertexInfo(modelName, srcMesh), n = I.dist.length, out = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    if (I.ry[i] < -0.45 || I.dist[i] > 1.3) continue;
+    const ear = Math.abs(I.dx[i]) > 0.72 && Math.abs(I.dy[i]) < 0.32 && I.dz[i] > -0.35 && I.dz[i] < 0.45;
+    if (ear) continue;
+    const face = I.dz[i] > 0.42 && I.dy[i] < 0.6;
+    const zone = I.dy[i] > 0.4 || (I.dz[i] < -0.12 && I.dy[i] > -0.5) || (Math.abs(I.dx[i]) > 0.6 && I.dy[i] > -0.12 && I.dz[i] < 0.25);
+    if ((zone && !face) || (I.dy[i] > 0.38 && I.hairCol[i])) out[i] = 1;
+  }
+  return out;
+}
+
+/* ---------- pants: find the trouser UV islands and re-dye them ---------- */
+const pantsCache = new Map();
+function camoCanvas(W, H, cols) {
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const x = c.getContext("2d"); const r = mulberry(99);
+  x.fillStyle = "#" + cols[0].toString(16).padStart(6, "0"); x.fillRect(0, 0, W, H);
+  for (let k = 1; k < cols.length; k++) for (let i = 0; i < 140; i++) {
+    x.fillStyle = "#" + cols[k].toString(16).padStart(6, "0"); x.beginPath();
+    const cx = r() * W, cy = r() * H, rad = W * (0.012 + r() * 0.03);
+    for (let a = 0; a < 6.28; a += 0.6) { const rr = rad * (0.6 + r() * 0.7); x.lineTo(cx + Math.cos(a) * rr * 1.6, cy + Math.sin(a) * rr); }
+    x.fill();
+  }
+  return x.getImageData(0, 0, W, H).data;
+}
+function pantsMap(key, mesh, baseMap, ownTone, pants) {
+  if (pantsCache.has(key)) return pantsCache.get(key);
+  const g = mesh.geometry, uv = g.attributes.uv, si = g.attributes.skinIndex, sw = g.attributes.skinWeight, ix = g.index;
+  const nV = g.attributes.position.count, nI = ix ? ix.count : nV;
+  const bones = mesh.skeleton.bones;
+  const legB = bones.map((b) => /Thigh|Calf/.test(b.name)), footB = bones.map((b) => /Foot|Toe/.test(b.name));
+  const wOf = (i, arr) => (arr[si.getX(i)] ? sw.getX(i) : 0) + (arr[si.getY(i)] ? sw.getY(i) : 0) + (arr[si.getZ(i)] ? sw.getZ(i) : 0) + (arr[si.getW(i)] ? sw.getW(i) : 0);
+  // UV islands = connected triangles (vertices are split at UV seams)
+  const parent = new Int32Array(nV); for (let i = 0; i < nV; i++) parent[i] = i;
+  const find = (a) => { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; };
+  for (let t = 0; t < nI; t += 3) { const a = find(ix ? ix.getX(t) : t), b = find(ix ? ix.getX(t + 1) : t + 1), c = find(ix ? ix.getX(t + 2) : t + 2); parent[b] = a; parent[find(c)] = a; }
+  const leg = new Map(), foot = new Map(), cnt = new Map();
+  for (let i = 0; i < nV; i++) { const r = find(i); cnt.set(r, (cnt.get(r) || 0) + 1); leg.set(r, (leg.get(r) || 0) + (wOf(i, legB) > 0.5 ? 1 : 0)); foot.set(r, (foot.get(r) || 0) + (wOf(i, footB) > 0.5 ? 1 : 0)); }
+  const isPants = (r) => leg.get(r) / cnt.get(r) > 0.45 && foot.get(r) / cnt.get(r) < 0.3;
+  const img = baseMap.image, W = img.width, H = img.height;
+  const mask = document.createElement("canvas"); mask.width = W; mask.height = H;
+  const mctx = mask.getContext("2d", { willReadFrequently: true }); mctx.fillStyle = "#fff"; mctx.strokeStyle = "#fff"; mctx.lineWidth = 2; mctx.beginPath();
+  for (let t = 0; t < nI; t += 3) {
+    const a = ix ? ix.getX(t) : t, b = ix ? ix.getX(t + 1) : t + 1, c = ix ? ix.getX(t + 2) : t + 2;
+    if (!isPants(find(a))) continue;
+    mctx.moveTo(uv.getX(a) * W, uv.getY(a) * H); mctx.lineTo(uv.getX(b) * W, uv.getY(b) * H); mctx.lineTo(uv.getX(c) * W, uv.getY(c) * H); mctx.closePath();
+  }
+  mctx.fill(); mctx.stroke();
+  const md = mctx.getImageData(0, 0, W, H).data;
+  const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+  const ctx = cv.getContext("2d", { willReadFrequently: true }); ctx.drawImage(img, 0, 0);
+  const id = ctx.getImageData(0, 0, W, H), d = id.data;
+  const fs = ownTone ? ownTone[0] + ownTone[1] + ownTone[2] : 1, fr = ownTone ? ownTone[0] / fs : 0, fg = ownTone ? ownTone[1] / fs : 0;
+  const isSkin = (i) => { if (!ownTone) return false; const s = d[i] + d[i + 1] + d[i + 2] + 1e-3; return Math.abs(d[i] / s - fr) + Math.abs(d[i + 1] / s - fg) < 0.045 && s > 120; };
+  let sum = 0, n = 0;
+  for (let i = 0; i < d.length; i += 4) if (md[i] > 128 && !isSkin(i)) { sum += d[i] * 0.3 + d[i + 1] * 0.55 + d[i + 2] * 0.15; n++; }
+  const mean = n ? sum / n : 128;
+  const camo = pants.camo ? camoCanvas(W, H, pants.camo) : null;
+  const tint = pants.tint ?? 0x777777, tr = (tint >> 16) & 255, tg = (tint >> 8) & 255, tb = tint & 255;
+  for (let i = 0; i < d.length; i += 4) {
+    if (md[i] < 128 || isSkin(i)) continue;
+    const L = (d[i] * 0.3 + d[i + 1] * 0.55 + d[i + 2] * 0.15) / mean;
+    const k = Math.pow(L, 0.9);
+    const cr = camo ? camo[i] : tr, cg = camo ? camo[i + 1] : tg, cb = camo ? camo[i + 2] : tb;
+    d[i] = Math.min(255, cr * k); d[i + 1] = Math.min(255, cg * k); d[i + 2] = Math.min(255, cb * k);
+  }
+  ctx.putImageData(id, 0, 0);
+  const t = canvasTexFrom(cv, baseMap, true);
+  pantsCache.set(key, t);
+  return t;
+}
 
 /* ---------- skin-tone matching for face swaps ---------- */
 function imgCanvas(img, w = img.width, h = img.height) {
@@ -277,7 +541,9 @@ export class Human {
         const mt = Array.isArray(o.material) ? o.material[0] : o.material;
         if (mt.name !== "head") return;
         const hw = headWeight(o);
-        o.geometry = subsetGeometry(o.geometry, (a, b, c) => hw(a) < 0.5 || hw(b) < 0.5 || hw(c) < 0.5);
+        let hv = null;
+        try { const own = new Map(); ready.get(name).scene.traverse((x) => { if (x.isSkinnedMesh) own.set(x.geometry.attributes.position, x); }); const sm0 = own.get(o.geometry.attributes.position); if (sm0) hv = hairVerts(name, sm0); } catch (e) { hv = null; }
+        o.geometry = subsetGeometry(o.geometry, (a, b, c) => (hw(a) < 0.5 || hw(b) < 0.5 || hw(c) < 0.5) && !(hv && hv[a] + hv[b] + hv[c] >= 2));
         try { const t = retonedBodyMap(name, faceName, o, mt, "neck"); if (t) { mt.map = t; mt.needsUpdate = true; } } catch (e) { console.warn("neck retone failed", e); }
       });
       this.faceMeshes = this.attachFace(faceName);
@@ -291,8 +557,27 @@ export class Human {
       });
     }
     const headMats = this.faceMeshes.length ? this.faceMeshes.flatMap((fm) => (Array.isArray(fm.material) ? fm.material : [fm.material])) : this.matList;
-    this.hairMat = headMats.find((mt) => mt.name === "opacity" && mt.visible !== false) || null;
-    if (this.hairMat) this.hairMat.userData.origMap = this.hairMat.map;
+    this.headMats = headMats.filter((mt) => mt.name === "head" && (this.faceMeshes.length || mt.visible !== false));
+    // head pieces whose hair shells can be removed (+ the original mesh for rest-pose measurements)
+    const srcByPos = new Map();
+    ready.get(faceName).scene.traverse((o) => { if (o.isSkinnedMesh) srcByPos.set(o.geometry.attributes.position, o); });
+    this.headPieces = [];
+    const pieces = this.faceMeshes.length ? this.faceMeshes : (() => { const a = []; m.traverse((o) => { if (o.isSkinnedMesh) a.push(o); }); return a; })();
+    for (const o of pieces) {
+      const mt = Array.isArray(o.material) ? o.material[0] : o.material;
+      const srcMesh = srcByPos.get(o.geometry.attributes.position);
+      if (mt.name === "head" && srcMesh) this.headPieces.push({ mesh: o, full: o.geometry, srcMesh });
+    }
+    this.headMats.forEach((mt) => (mt.userData.orig = { map: mt.map, normalMap: mt.normalMap, roughnessMap: mt.roughnessMap }));
+    this.bodyParts = [];
+    m.traverse((o) => {
+      if (!o.isSkinnedMesh || o.name === "face") return;
+      const mt = Array.isArray(o.material) ? o.material[0] : o.material;
+      if (mt.name === "body" && mt.map) this.bodyParts.push({ mesh: o, mat: mt, base: mt.map });
+    });
+    this.hairMats = headMats.filter((mt) => mt.name === "opacity" && mt.visible !== false);
+    this.hairMats.forEach((mt) => (mt.userData.origMap = mt.map));
+    this.hairMat = this.hairMats[0] || null;
     // animation
     this.gender = outfitFor(this.look).body === "female" ? "f" : "m";
     this.mixer = new THREE.AnimationMixer(m);
@@ -378,6 +663,7 @@ export class Human {
     if (this.hair) { this.hair.dispose(); this.hair = null; }
     this.cloths.forEach((c) => c.dispose()); this.cloths = [];
     if (this.mask) { this.mask.parent?.remove(this.mask); this.mask = null; }
+    if (this.scalp) { this.scalp.parent?.remove(this.scalp); this.scalp.geometry.dispose(); this.scalp = null; }
   }
   applyExtras() {
     this.disposeExtras();
@@ -385,19 +671,62 @@ export class Human {
     const col = HAIR_COLORS.find((c) => c.id === L.hairColor);
     const natural = !col || col.hex === null;
     // the model's own hair (alpha-card hair on most women, painted on most men)
-    if (this.hairMat) {
-      this.hairMat.visible = L.hair === "natural";
-      this.hairMat.map = natural ? this.hairMat.userData.origMap : grayHairTexture(this.hairMat.userData.origMap);
-      this.hairMat.color.setHex(natural ? 0xffffff : col.hex);
-      this.hairMat.needsUpdate = true;
+    // bald scalp unless the model's own hair is chosen
+    const bald = L.hair !== "natural" ? baldHeadMaps(this.faceName) : null;
+    // delete the hair shells of the head mesh unless the natural hair is worn
+    for (const hp of this.headPieces || []) {
+      let geo = hp.full;
+      if (L.hair !== "natural") {
+        try {
+          const hv = hairVerts(this.faceName, hp.srcMesh);
+          hp.bald = hp.bald || subsetGeometry(hp.full, (a, b, c) => hv[a] + hv[b] + hv[c] < 2);
+          geo = hp.bald;
+        } catch (e) { console.warn("hair shell removal failed", e); }
+      }
+      if (hp.mesh.geometry !== geo) hp.mesh.geometry = geo;
     }
-    if (L.hair !== "natural") {
+
+    for (const hm of this.headMats || []) {
+      const o = hm.userData.orig, src = bald || o;
+      hm.map = src.map; hm.normalMap = src.normalMap || o.normalMap; hm.roughnessMap = src.roughnessMap || o.roughnessMap;
+      hm.needsUpdate = true;
+    }
+    // pants dye
+    const pants = PANTS.find((p) => p.id === L.pants);
+    for (const bp of this.bodyParts || []) {
+      let map = bp.base;
+      if (pants && pants.id !== "orig") { try { map = pantsMap(`${this.modelName}>${this.faceName}>${pants.id}`, bp.mesh, bp.base, skinTone(this.faceName), pants); } catch (e) { console.warn("pants dye failed", e); } }
+      if (bp.mat.map !== map) { bp.mat.map = map; bp.mat.needsUpdate = true; }
+    }
+    for (const hm of this.hairMats || []) {
+      hm.visible = L.hair === "natural";
+      hm.map = natural ? hm.userData.origMap : grayHairTexture(hm.userData.origMap);
+      hm.color.setHex(natural ? 0xffffff : col.hex);
+      hm.needsUpdate = true;
+    }
+    if (L.hair !== "natural" && L.hair !== "bald") {
       this.root.updateMatrixWorld(true);
       this.hair = new HairSystem(this, L.hair, new THREE.Color(natural ? 0x3a2618 : col.hex), this.quality);
     }
     const item = CLOTH_ITEMS.find((c) => c.id === L.cloth);
     if (item && item.id !== "none") { this.root.updateMatrixWorld(true); Avatar.prototype.buildCloth.call(this, item); }
     if (L.mask === "respirator") this.buildMask();
+  }
+  // smooth skin scalp fitted to this person's skull (sits under where the hair was)
+  buildScalp() {
+    const info = headInfo(this.faceName), s = info.r / 0.1;
+    const tone = skinTone(this.faceName) || [200, 160, 140];
+    const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(`rgb(${tone[0] * 0.98 | 0},${tone[1] * 0.96 | 0},${tone[2] * 0.95 | 0})`), roughness: 0.48, normalMap: this.tex.skin.normalMap, normalScale: new THREE.Vector2(0.4, 0.4) });
+    const geo = new THREE.SphereGeometry(1, 48, 24, 0, Math.PI * 2, 0, Math.PI * 0.64);
+    const cap = new THREE.Mesh(geo, mat);
+    // shaved skull: width from the skin-only head measurement (ears trimmed), typical depth/height ratios
+    const rx = info.r * 0.93, rz = info.r * 1.17, ry = info.r * 1.08;
+    cap.scale.set(rx / s, ry / s, rz / s);
+    cap.position.set(0, -0.012 / s, -0.018 / s);
+    cap.rotation.x = -0.18;
+    cap.castShadow = true; cap.receiveShadow = true;
+    this.j.head.add(cap);
+    this.scalp = cap;
   }
   buildMask() {
     const g = new THREE.Group();
@@ -452,7 +781,7 @@ export class Human {
     // seat the sitting animation's pelvis onto the bench we were placed on
     if (this.state === "sit" && !this.sitFixed) {
       const p = this.B.pelvis.getWorldPosition(new THREE.Vector3()).applyMatrix4(this.invRoot);
-      this.model.position.x += 0 - p.x; this.model.position.y += 0.56 - p.y; this.model.position.z += -0.08 - p.z;
+      this.model.position.x += 0 - p.x; this.model.position.y += 0.575 - p.y; this.model.position.z += -0.17 - p.z;
       this.sitFixed = true;
       this.root.updateMatrixWorld(true);
     }

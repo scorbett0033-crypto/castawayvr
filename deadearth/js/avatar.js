@@ -3,14 +3,14 @@
 // colliding with the body.
 import * as THREE from "three";
 import { mulberry32, noise1, mergeGeos, indexify } from "./utils.js";
-import { withRepeat } from "./textures.js";
+import { withRepeat, hairStrandTexture } from "./textures.js";
+let STRAND_TEX = null;
 
 const SKIN = 0xdcab90;
 
 /* ---------------- catalog ---------------- */
 export const HAIR_STYLES = [
   { id: "natural", name: "Natural", price: 0, icon: "★" },
-  { id: "buzz", name: "Buzz Cut", price: 0 },
   { id: "crop", name: "Messy Crop", price: 0 },
   { id: "bob", name: "Shoulder Bob", price: 200 },
   { id: "ponytail", name: "Ponytail", price: 250 },
@@ -69,6 +69,19 @@ export const FACES = [
   { id: "Military_Female_01", name: "Alex (helmet)", body: "female", price: 250 },
 ];
 export const faceFor = (look) => { const f = FACES.find((x) => x.id === look.face); return f && (f.id === "own" || f.body === look.body) ? f.id : "own"; };
+// Pants: re-dye the legs of any outfit (the fabric detail of the original texture is kept).
+export const PANTS = [
+  { id: "orig", name: "Outfit's Own", price: 0, icon: "★" },
+  { id: "denim", name: "Blue Denim", price: 100, tint: 0x3a5577 },
+  { id: "black", name: "Black Jeans", price: 120, tint: 0x1f2126 },
+  { id: "grey", name: "Grey Joggers", price: 120, tint: 0x6e7176 },
+  { id: "khaki", name: "Khaki Chinos", price: 150, tint: 0xa38f66 },
+  { id: "olive", name: "Olive Cargo", price: 180, tint: 0x4f5638 },
+  { id: "white", name: "White", price: 200, tint: 0xd8d8d4 },
+  { id: "burgundy", name: "Burgundy", price: 220, tint: 0x6a1e26 },
+  { id: "camo", name: "Desert Camo", price: 300, camo: [0xb3a37a, 0x8a7a55, 0x6b5f45, 0x4a4433] },
+  { id: "navycamo", name: "Urban Camo", price: 300, camo: [0x8e9196, 0x5d6168, 0x3a3d43, 0x22252a] },
+];
 export const defaultOutfit = (body) => (body === "female" ? "f_tee" : "m_shirt");
 export const outfitFor = (look) => OUTFITS.find((o) => o.id === look.outfit && o.body === look.body) || OUTFITS.find((o) => o.id === defaultOutfit(look.body));
 // legacy procedural outfits (fallback body only)
@@ -96,7 +109,7 @@ export const MASKS = [
   { id: "none", name: "Bare Face", price: 0, icon: "☺" },
   { id: "respirator", name: "Respirator", price: 0, icon: "◉" },
 ];
-export const DEFAULT_LOOK = { body: "male", face: "own", hair: "natural", hairColor: "natural", outfit: "m_shirt", cloth: "none", mask: "none" };
+export const DEFAULT_LOOK = { body: "male", face: "own", pants: "orig", hair: "natural", hairColor: "natural", outfit: "m_shirt", cloth: "none", mask: "none" };
 
 /* painted face detail (sphere UV: face centre at u=0.25, v=0.5) */
 const faceCache = {};
@@ -140,12 +153,13 @@ function faceTexture(body) {
 const STYLE_PARAMS = {
   buzz: null,
   natural: null,
-  crop: { count: 320, nodes: 4, len: 0.06, stiff: 0.8, bend: 0.2, width: 0.016, out: 0.75 },
-  bob: { count: 230, nodes: 7, len: 0.2, stiff: 0.3, bend: 0.45, width: 0.016, out: 0.35, frame: true },
-  long: { count: 260, nodes: 10, len: 0.4, stiff: 0.22, bend: 0.4, width: 0.016, out: 0.3, frame: true },
-  ponytail: { count: 90, nodes: 3, len: 0.035, stiff: 1, bend: 0.1, width: 0.016, out: 0.2, sweepBack: true, tail: { count: 70, nodes: 9, len: 0.34, stiff: 0.2, width: 0.014 } },
-  mohawk: { count: 150, nodes: 5, len: 0.14, stiff: 0.85, bend: -0.05, width: 0.018, out: 1.0, mohawk: true },
-  dreads: { count: 46, nodes: 9, len: 0.33, stiff: 0.18, bend: 0.55, width: 0.022, out: 0.35, crossed: true },
+  bald: null,
+  crop: { count: 300, nodes: 5, len: 0.065, stiff: 0.8, bend: 0.55, width: 0.034, out: 0.35 },
+  bob: { count: 260, nodes: 8, len: 0.2, stiff: 0.3, bend: 0.5, width: 0.036, out: 0.25, frame: true },
+  long: { count: 300, nodes: 11, len: 0.42, stiff: 0.22, bend: 0.45, width: 0.038, out: 0.22, frame: true },
+  ponytail: { count: 140, nodes: 4, len: 0.05, stiff: 1, bend: 0.2, width: 0.034, out: 0.1, sweepBack: true, tail: { count: 90, nodes: 9, len: 0.34, stiff: 0.2, width: 0.03 } },
+  mohawk: { count: 170, nodes: 5, len: 0.14, stiff: 0.85, bend: -0.05, width: 0.03, out: 1.0, mohawk: true },
+  dreads: { count: 46, nodes: 9, len: 0.33, stiff: 0.18, bend: 0.55, width: 0.024, out: 0.35, crossed: true },
 };
 
 const CAP_TILT = -0.5;
@@ -238,11 +252,14 @@ export class HairSystem {
     g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(vCount * 3), 3));
     g.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(vCount * 3), 3));
     const col = new Float32Array(vCount * 3);
+    const uvs = new Float32Array(vCount * 2);
     const idx = [];
     for (const s of this.strands) {
       const n = s.rest.length;
+      const u0 = Math.random(), uw = 0.3 + Math.random() * 0.25;
       for (let i = 0; i < n; i++) {
         const k = s.offset + i;
+        for (let v = 0; v < vPer; v++) { const o = (k * vPer + v) * 2; uvs[o] = u0 + (v % 2) * uw; uvs[o + 1] = 0.02 + 0.96 * (i / (n - 1)); }
         const shade = s.shade * (0.55 + 0.45 * Math.pow(i / (n - 1), 0.6));
         for (let v = 0; v < vPer; v++) { const o = (k * vPer + v) * 3; col[o] = col[o + 1] = col[o + 2] = shade; }
         if (i < n - 1) for (let r = 0; r < ribbons; r++) {
@@ -252,8 +269,11 @@ export class HairSystem {
       }
     }
     g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    g.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
     g.setIndex(idx);
-    this.mat = new THREE.MeshStandardMaterial({ color, roughness: 0.48, metalness: 0.0, side: THREE.DoubleSide, vertexColors: true });
+    if (!STRAND_TEX) STRAND_TEX = hairStrandTexture();
+    // hair cards: fine strands with soft, see-through tips (alpha-to-coverage keeps edges smooth under MSAA)
+    this.mat = new THREE.MeshStandardMaterial({ color, map: STRAND_TEX, roughness: 0.42, metalness: 0.0, side: THREE.DoubleSide, vertexColors: true, alphaTest: 0.32, alphaToCoverage: true });
     this.mesh = new THREE.Mesh(g, this.mat);
     this.mesh.frustumCulled = false;
     this.mesh.castShadow = true;
@@ -930,10 +950,10 @@ export class Avatar {
       this.j.chest.add(wrap);
       const tails = [[0.05, 0.08, 0.95], [-0.02, -0.09, 0.75]];
       tails.forEach(([x, z, len], n) => {
-        const W = 4, H = 12;
+        const W = 5, H = 12;
         const c = new Cloth(this, {
           w: W, h: H, attach: this.j.chest, material: mat, seed: 11 + n,
-          init: (i, j) => new THREE.Vector3(x + (i / (W - 1) - 0.5) * 0.09, 0.22 - j * (0.6 * len) / (H - 1), z + Math.sign(z) * (0.02 + j * 0.005)),
+          init: (i, j) => new THREE.Vector3(x + (i / (W - 1) - 0.5) * 0.13, 0.22 - j * (0.6 * len) / (H - 1), z + Math.sign(z) * (0.02 + j * 0.005)),
         });
         if (n === 0) c.extra = wrap;
         this.cloths.push(c);

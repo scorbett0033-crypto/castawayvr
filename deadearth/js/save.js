@@ -1,5 +1,5 @@
 // Persistent progress (coins, unlocks, look) in localStorage.
-import { DEFAULT_LOOK, HAIR_STYLES, HAIR_COLORS, OUTFITS, CLOTH_ITEMS, BODY_TYPES, MASKS, FACES, outfitFor, faceFor } from "./avatar.js";
+import { DEFAULT_LOOK, HAIR_STYLES, HAIR_COLORS, OUTFITS, CLOTH_ITEMS, BODY_TYPES, MASKS, FACES, PANTS, outfitFor, faceFor } from "./avatar.js";
 
 const KEY = "deadearth-save-v2";
 const free = (list) => list.filter((x) => x.price === 0).map((x) => x.id);
@@ -9,7 +9,7 @@ function fresh() {
     coins: 300,
     weapons: ["pistol"],
     equipped: "pistol",
-    owned: { body: free(BODY_TYPES), face: free(FACES), mask: free(MASKS), hair: free(HAIR_STYLES), hairColor: free(HAIR_COLORS), outfit: free(OUTFITS), cloth: free(CLOTH_ITEMS) },
+    owned: { body: free(BODY_TYPES), face: free(FACES), pants: free(PANTS), mask: free(MASKS), hair: free(HAIR_STYLES), hairColor: free(HAIR_COLORS), outfit: free(OUTFITS), cloth: free(CLOTH_ITEMS) },
     look: { ...DEFAULT_LOOK },
     stats: { kills: 0, bestWave: 0, runs: 0 },
   };
@@ -27,6 +27,7 @@ function load() {
     look.outfit = outfitFor(look).id;
     look.face = faceFor(look);
     if (!HAIR_STYLES.find((x) => x.id === look.hair)) look.hair = "natural";
+    if (!PANTS.find((x) => x.id === look.pants)) look.pants = "orig";
     if (!HAIR_COLORS.find((x) => x.id === look.hairColor)) look.hairColor = "natural";
     return { ...f, ...s, owned, look, stats: { ...f.stats, ...(s.stats || {}) } };
   } catch { return fresh(); }

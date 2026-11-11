@@ -1,7 +1,7 @@
 // In-world canvas touch panels (shop + wardrobe), wrist HUD and laser pointers.
 import * as THREE from "three";
 import { WEAPONS } from "./weapons.js";
-import { HAIR_STYLES, HAIR_COLORS, OUTFITS, CLOTH_ITEMS, BODY_TYPES, MASKS, FACES, defaultOutfit } from "./avatar.js";
+import { HAIR_STYLES, HAIR_COLORS, OUTFITS, CLOTH_ITEMS, BODY_TYPES, MASKS, FACES, PANTS, defaultOutfit } from "./avatar.js";
 
 const faceImgs = {};
 function faceImg(id, onload) {
@@ -140,6 +140,7 @@ const TABS = [
   { key: "hair", label: "HAIR", list: HAIR_STYLES },
   { key: "hairColor", label: "COLOR", list: HAIR_COLORS },
   { key: "outfit", label: "OUTFIT", list: OUTFITS },
+  { key: "pants", label: "PANTS", list: PANTS },
   { key: "cloth", label: "CLOTH", list: CLOTH_ITEMS },
   { key: "mask", label: "GEAR", list: MASKS },
 ];
@@ -156,10 +157,10 @@ export class WardrobePanel extends Panel {
   draw(ctx, W, H) {
     frame(ctx, W, H, "WARDROBE  //  YOUR AVATAR", "#41c7b9");
     TABS.forEach((t, i) => {
-      const x = 28 + i * 152, y = 112, w = 142, h = 60;
+      const x = 28 + i * 153, y = 112, w = 145, h = 60;
       const hov = this.button("t" + i, x, y, w, h, () => { this.tab = i; this.sfx.click(); });
       rr(ctx, x, y, w, h, 10); ctx.fillStyle = this.tab === i ? "#41c7b9" : hov ? "#26313a" : "#1a2229"; ctx.fill();
-      ctx.fillStyle = this.tab === i ? "#071211" : "#cfd8df"; ctx.font = `800 24px ${FONT}`; ctx.textAlign = "center";
+      ctx.fillStyle = this.tab === i ? "#071211" : "#cfd8df"; ctx.font = `800 22px ${FONT}`; ctx.textAlign = "center";
       ctx.fillText(t.label, x + w / 2, y + h / 2 + 1);
     });
     const T = TABS[this.tab];
@@ -183,7 +184,7 @@ export class WardrobePanel extends Panel {
       const isTry = this.trying[T.key] === item.id;
       ctx.fillStyle = isTry ? "#24323a" : hov ? "#1f2830" : "#161d23"; ctx.fill();
       if (isTry) { ctx.strokeStyle = "#41c7b9"; ctx.lineWidth = 4; ctx.stroke(); }
-      const swatch = item.hex ?? item.swatch ?? item.color;
+      const swatch = item.hex ?? item.swatch ?? item.color ?? item.tint ?? (item.camo ? item.camo[1] : undefined);
       if (T.key === "face" && item.id !== "own") {
         const im = faceImg(item.id, () => this.redraw());
         ctx.save(); ctx.beginPath(); ctx.arc(x + 54, y + iy, 38, 0, Math.PI * 2); ctx.clip();
