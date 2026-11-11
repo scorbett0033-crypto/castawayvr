@@ -165,9 +165,9 @@ const STYLE_PARAMS = {
   buzz: null,
   natural: null,
   bald: null,
-  crop: { count: 300, nodes: 5, len: 0.065, stiff: 0.8, bend: 0.55, width: 0.034, out: 0.35 },
-  bob: { count: 260, nodes: 8, len: 0.2, stiff: 0.3, bend: 0.5, width: 0.036, out: 0.25, frame: true },
-  long: { count: 300, nodes: 11, len: 0.42, stiff: 0.22, bend: 0.45, width: 0.038, out: 0.22, frame: true },
+  crop: { count: 440, nodes: 5, len: 0.06, stiff: 0.8, bend: 0.7, width: 0.03, out: 0.2 },
+  bob: { count: 420, nodes: 8, len: 0.2, stiff: 0.3, bend: 0.6, width: 0.034, out: 0.12, frame: true },
+  long: { count: 480, nodes: 11, len: 0.42, stiff: 0.22, bend: 0.55, width: 0.034, out: 0.1, frame: true },
   ponytail: { count: 140, nodes: 4, len: 0.05, stiff: 1, bend: 0.2, width: 0.034, out: 0.1, sweepBack: true, tail: { count: 90, nodes: 9, len: 0.34, stiff: 0.2, width: 0.03 } },
   mohawk: { count: 170, nodes: 5, len: 0.14, stiff: 0.85, bend: -0.05, width: 0.03, out: 1.0, mohawk: true },
   dreads: { count: 46, nodes: 9, len: 0.33, stiff: 0.18, bend: 0.55, width: 0.024, out: 0.35, crossed: true },
@@ -177,6 +177,27 @@ const CAP_TILT = -0.5;
 const CAP_THETA = Math.PI * 0.52;
 const CAP_R = 0.109;
 const CAP_C = new THREE.Vector3(0, 0.004, -0.006);
+const _hv = new THREE.Vector3();
+
+// alpha for the scalp cap: fully opaque on top, breaking up into wisps along the bottom edge (uv.y -> 0)
+let HAIRLINE = null;
+function hairlineAlpha() {
+  if (HAIRLINE) return HAIRLINE;
+  const W = 512, H = 128, c = document.createElement("canvas"); c.width = W; c.height = H;
+  const x = c.getContext("2d"), img = x.createImageData(W, H), rnd = mulberry32(41);
+  const edge = new Float32Array(W); // per-column hairline height with smooth + jagged variation
+  for (let i = 0; i < W; i++) edge[i] = 0.1 + 0.035 * Math.sin(i / W * Math.PI * 6) + 0.025 * Math.sin(i / W * Math.PI * 22 + 1.3);
+  for (let i = 0; i < W; i++) edge[i] += (rnd() - 0.5) * 0.06;
+  for (let yy = 0; yy < H; yy++) for (let i = 0; i < W; i++) {
+    const v = 1 - yy / (H - 1); // canvas row 0 = uv.y 1 (top of the cap)
+    const t = (v - edge[i]) / 0.07; // soft ramp above the hairline
+    const a = Math.max(0, Math.min(1, t + (rnd() - 0.5) * 0.9));
+    const o = (yy * W + i) * 4; img.data[o] = img.data[o + 1] = img.data[o + 2] = a * 255; img.data[o + 3] = 255;
+  }
+  x.putImageData(img, 0, 0);
+  HAIRLINE = new THREE.CanvasTexture(c);
+  return HAIRLINE;
+}
 
 export class HairSystem {
   constructor(avatar, style, color, quality) {
@@ -185,6 +206,7 @@ export class HairSystem {
     this.group = new THREE.Group();
     const capMat = new THREE.MeshStandardMaterial({
       color, map: avatar.tex.hair.map, normalMap: avatar.tex.hair.normalMap, roughness: 0.6,
+      alphaMap: hairlineAlpha(), alphaTest: 0.5, alphaToCoverage: true, // soft, uneven hairline instead of a hard edge
     });
     const cap = new THREE.Mesh(new THREE.SphereGeometry(CAP_R, 32, 16, 0, Math.PI * 2, 0, style === "buzz" ? CAP_THETA * 0.97 : CAP_THETA), capMat);
     cap.position.copy(CAP_C);
@@ -230,7 +252,7 @@ export class HairSystem {
       if (P.mohawk) d0.add(new THREE.Vector3(0, 0.6, -0.15));
       else if (P.sweepBack) d0.add(new THREE.Vector3(-dir.x * 0.3, 0.2, -1));
       else d0.add(new THREE.Vector3(0, -0.4, -0.25));
-      if (P.frame && dir.z > 0.25) d0.add(new THREE.Vector3(Math.sign(dir.x || 1) * 0.9, 0, -0.5)); // part away from face
+      if (P.frame && dir.z > 0.25) d0.add(new THREE.Vector3(Math.sign(dir.x || 1) * 0.45, 0, -0.35)); // part away from face
       const L = P.len * (0.85 + rnd() * 0.3);
       addStrand(root, d0, P.nodes, L, P.stiff, P.bend, P.width);
     }
@@ -307,6 +329,7 @@ export class HairSystem {
     const P = this.pos, Q = this.prev, R = this.restW;
     if (this.needsReset || !Number.isFinite(P[P.length - 1])) { P.set(R); Q.set(R); this.needsReset = false; }
     if (!(dt > 1e-4)) { this.writeMesh(colliders[0].p); return; } // a zero-length frame would divide by zero
+    this.invHead = (this.invHead || new THREE.Matrix4()).copy(headM).invert();
     const h = Math.min(dt, 1 / 30);
     const drag = 1.7, damping = 0.965, g = -9.8;
     for (let si = 0; si < this.strands.length; si++) {
@@ -332,7 +355,11 @@ export class HairSystem {
         let l = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-6;
         const f = s.seg / l;
         P[o] = P[p] + dx * f; P[o + 1] = P[p + 1] + dy * f; P[o + 2] = P[p + 2] + dz * f;
-        for (let c = 0; c < colliders.length; c++) {
+        // the skull, in the head frame (scaled to this person's skull): keeps hair on the head, not floating out
+        _hv.set(P[o], P[o + 1], P[o + 2]).applyMatrix4(this.invHead).sub(CAP_C);
+        const hl = _hv.length();
+        if (hl < CAP_R * 1.02) { _hv.multiplyScalar(CAP_R * 1.02 / (hl || 1e-6)).add(CAP_C).applyMatrix4(headM); P[o] = _hv.x; P[o + 1] = _hv.y; P[o + 2] = _hv.z; }
+        for (let c = 1; c < colliders.length; c++) {
           const C = colliders[c];
           dx = P[o] - C.p.x; dy = P[o + 1] - C.p.y; dz = P[o + 2] - C.p.z;
           const d2 = dx * dx + dy * dy + dz * dz, r = C.r + 0.006;
