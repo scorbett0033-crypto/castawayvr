@@ -1,5 +1,7 @@
-// Realistic humans: fully textured, rigged people from the Microsoft Rocketbox
-// avatar library (MIT), driven by mocap clips (idle / walk / run / sit).
+// Realistic humans: fully textured, rigged people. Two rigs are supported:
+//  - "meshy": the bald base man / woman (Ready Player 2 originals, made with Meshy) with
+//    idle / walk / run / sit / death clips; their tee and jeans can be re-dyed;
+//  - "rb": people from the Microsoft Rocketbox avatar library (MIT), mocap idle / walk / run / sit.
 // The wind-simulated strand hair, verlet cloth and respirator from avatar.js are
 // attached to "frames" that ride on the real skeleton's bones.
 import * as THREE from "three";
@@ -29,23 +31,31 @@ export function ensureModel(name) {
 }
 export const modelReady = (name) => ready.has(name);
 export async function loadHumanAssets(names, onProgress) {
-  const all = ["anims_m", "anims_f", ...new Set(names)];
+  const all = ["anims_m", "anims_f", "anims_bm", "anims_bf", ...new Set(names)];
   let done = 0;
   await Promise.all(all.map((n) => ensureModel(n).then(() => onProgress && onProgress(++done / all.length))));
 }
 
-const BONES = {
+const RB_BONES = {
   pelvis: "Bip01_Pelvis", spine: "Bip01_Spine", spine1: "Bip01_Spine1", spine2: "Bip01_Spine2", neck: "Bip01_Neck", head: "Bip01_Head",
   lUp: "Bip01_L_UpperArm", lFore: "Bip01_L_Forearm", lHand: "Bip01_L_Hand", rUp: "Bip01_R_UpperArm", rFore: "Bip01_R_Forearm", rHand: "Bip01_R_Hand",
   lThigh: "Bip01_L_Thigh", lCalf: "Bip01_L_Calf", lFoot: "Bip01_L_Foot", rThigh: "Bip01_R_Thigh", rCalf: "Bip01_R_Calf", rFoot: "Bip01_R_Foot",
 };
+const MESHY_BONES = {
+  pelvis: "Hips", spine: "Spine02", spine1: "Spine01", spine2: "Spine", neck: "neck", head: "Head",
+  lUp: "LeftArm", lFore: "LeftForeArm", lHand: "LeftHand", rUp: "RightArm", rFore: "RightForeArm", rHand: "RightHand",
+  lThigh: "LeftUpLeg", lCalf: "LeftLeg", lFoot: "LeftFoot", rThigh: "RightUpLeg", rCalf: "RightLeg", rFoot: "RightFoot",
+};
+const rigOf = (name) => (name.startsWith("base_") ? "meshy" : "rb");
+const bonesOf = (name) => (rigOf(name) === "meshy" ? MESHY_BONES : RB_BONES);
+const BONES = RB_BONES; // Rocketbox-only helpers (face swap, bald repaint) use these
 
 function sanitize(look) {
   const L = { ...DEFAULT_LOOK, ...look };
   if (L.body !== "male" && L.body !== "female") L.body = "male";
   if (outfitFor(L).id !== L.outfit) L.outfit = defaultOutfit(L.body);
   L.face = faceFor(L);
-  if (!HAIR_STYLES.find((h) => h.id === L.hair)) L.hair = "natural";
+  if (!HAIR_STYLES.find((h) => h.id === L.hair)) L.hair = "bald";
   if (!PANTS.find((p) => p.id === L.pants)) L.pants = "orig";
   if (!HAIR_COLORS.find((h) => h.id === L.hairColor)) L.hairColor = "natural";
   return L;
@@ -57,7 +67,22 @@ function headInfo(name) {
   if (headCache.has(name)) return headCache.get(name);
   const scene = ready.get(name).scene;
   scene.updateMatrixWorld(true);
-  const head = scene.getObjectByName(BONES.head);
+  const head = scene.getObjectByName(bonesOf(name).head);
+  if (rigOf(name) === "meshy") {
+    // bald base: every vertex the head bone drives is skull / face / ears
+    const box = new THREE.Box3(), v = new THREE.Vector3();
+    scene.traverse((sm) => {
+      if (!sm.isSkinnedMesh) return;
+      const hw = headWeight(sm, head.name), n = sm.geometry.attributes.position.count;
+      for (let i = 0; i < n; i++) if (hw(i) > 0.8) box.expandByPoint(sm.getVertexPosition(i, v).applyMatrix4(sm.matrixWorld));
+    });
+    const sz = box.getSize(new THREE.Vector3());
+    const r = THREE.MathUtils.clamp(sz.x / 2 * 0.86, 0.07, 0.11); // trim the ears
+    const c = box.getCenter(new THREE.Vector3()); c.y = box.max.y - r * 1.04; c.z -= 0.012;
+    const info = { local: head.worldToLocal(c), r };
+    headCache.set(name, info);
+    return info;
+  }
   let info = { local: head.worldToLocal(head.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.09, 0.015))), r: 0.095 };
   const box = new THREE.Box3(), v = new THREE.Vector3();
   const tone = skinTone(name) || [200, 160, 140], ts = tone[0] + tone[1] + tone[2], tr = tone[0] / ts, tg = tone[1] / ts;
@@ -348,6 +373,56 @@ function pantsMap(key, mesh, baseMap, ownTone, pants) {
   return t;
 }
 
+/* ---------- bald base people: re-dye the tee and the jeans by colour ---------- */
+const dyeCache = new Map();
+function baseDyeMap(key, mesh, baseMap, pants, shirtHex) {
+  if (dyeCache.has(key)) return dyeCache.get(key);
+  const g = mesh.geometry, uv = g.attributes.uv, si = g.attributes.skinIndex, sw = g.attributes.skinWeight, ix = g.index;
+  const nI = ix ? ix.count : g.attributes.position.count;
+  const bones = mesh.skeleton.bones;
+  const legB = bones.map((b) => /^(Hips|LeftUpLeg|RightUpLeg|LeftLeg|RightLeg)$/.test(b.name));
+  const footB = bones.map((b) => /Foot|Toe/.test(b.name));
+  const torsoB = bones.map((b) => /^(Hips|Spine|Spine01|Spine02|neck|LeftShoulder|RightShoulder|LeftArm|RightArm|LeftForeArm|RightForeArm)$/.test(b.name));
+  const wOf = (i, arr) => (arr[si.getX(i)] ? sw.getX(i) : 0) + (arr[si.getY(i)] ? sw.getY(i) : 0) + (arr[si.getZ(i)] ? sw.getZ(i) : 0) + (arr[si.getW(i)] ? sw.getW(i) : 0);
+  const img = baseMap.image, W = img.width, H = img.height;
+  const maskOf = (test) => {
+    const c = document.createElement("canvas"); c.width = W; c.height = H;
+    const x = c.getContext("2d", { willReadFrequently: true }); x.fillStyle = "#fff"; x.strokeStyle = "#fff"; x.lineWidth = 2; x.beginPath();
+    for (let t = 0; t < nI; t += 3) {
+      const a = ix ? ix.getX(t) : t, b = ix ? ix.getX(t + 1) : t + 1, cc = ix ? ix.getX(t + 2) : t + 2;
+      if (!test(a) && !test(b) && !test(cc)) continue;
+      x.moveTo(uv.getX(a) * W, uv.getY(a) * H); x.lineTo(uv.getX(b) * W, uv.getY(b) * H); x.lineTo(uv.getX(cc) * W, uv.getY(cc) * H); x.closePath();
+    }
+    x.fill(); x.stroke();
+    return x.getImageData(0, 0, W, H).data;
+  };
+  const legM = pants && pants.id !== "orig" ? maskOf((i) => wOf(i, legB) > 0.5 && wOf(i, footB) < 0.3) : null;
+  const torsoM = shirtHex != null ? maskOf((i) => wOf(i, torsoB) > 0.5) : null;
+  const cv = imgCanvas(img), ctx = cv.getContext("2d", { willReadFrequently: true });
+  const id = ctx.getImageData(0, 0, W, H), d = id.data, o = d.slice(); // classify on the original colours
+  const lum = (i) => o[i] * 0.3 + o[i + 1] * 0.55 + o[i + 2] * 0.15;
+  const skin = (i) => o[i] > o[i + 1] && o[i + 1] >= o[i + 2] - 4 && o[i] - o[i + 2] > 22;
+  const denim = (i) => !skin(i) && (o[i + 2] - o[i] > 6 || lum(i) < 60);
+  const tee = (i) => { const mx = Math.max(o[i], o[i + 1], o[i + 2]), mn = Math.min(o[i], o[i + 1], o[i + 2]); return !skin(i) && mx - mn < 26 && lum(i) > 70 && o[i + 2] - o[i] < 12; };
+  const recolor = (mask, test, tint, camo) => {
+    let sum = 0, n = 0;
+    for (let i = 0; i < d.length; i += 4) if (mask[i] > 128 && test(i)) { sum += lum(i); n++; }
+    const mean = n ? sum / n : 128;
+    const tr = (tint >> 16) & 255, tg = (tint >> 8) & 255, tb = tint & 255;
+    for (let i = 0; i < d.length; i += 4) {
+      if (mask[i] < 128 || !test(i)) continue;
+      const k = Math.pow(lum(i) / mean, 0.9);
+      d[i] = Math.min(255, (camo ? camo[i] : tr) * k); d[i + 1] = Math.min(255, (camo ? camo[i + 1] : tg) * k); d[i + 2] = Math.min(255, (camo ? camo[i + 2] : tb) * k);
+    }
+  };
+  if (torsoM) recolor(torsoM, tee, shirtHex);
+  if (legM) recolor(legM, denim, pants.tint ?? 0x777777, pants.camo ? camoCanvas(W, H, pants.camo) : null);
+  ctx.putImageData(id, 0, 0);
+  const t = canvasTexFrom(cv, baseMap, true);
+  dyeCache.set(key, t);
+  return t;
+}
+
 /* ---------- skin-tone matching for face swaps ---------- */
 function imgCanvas(img, w = img.width, h = img.height) {
   const c = document.createElement("canvas"); c.width = w; c.height = h;
@@ -372,8 +447,8 @@ function skinTone(name) {
 }
 const retoneCache = new Map();
 // per-vertex "how much does the head bone (or a facial bone) drive this vertex"
-function headWeight(mesh) {
-  const isHead = mesh.skeleton.bones.map((b) => { for (let p = b; p; p = p.parent) if (p.name === BONES.head) return true; return false; });
+function headWeight(mesh, headName = BONES.head) {
+  const isHead = mesh.skeleton.bones.map((b) => { for (let p = b; p; p = p.parent) if (p.name === headName) return true; return false; });
   const si = mesh.geometry.attributes.skinIndex, sw = mesh.geometry.attributes.skinWeight;
   return (i) => (isHead[si.getX(i)] ? sw.getX(i) : 0) + (isHead[si.getY(i)] ? sw.getY(i) : 0) + (isHead[si.getZ(i)] ? sw.getZ(i) : 0) + (isHead[si.getW(i)] ? sw.getW(i) : 0);
 }
@@ -528,8 +603,9 @@ export class Human {
       (Array.isArray(o.material) ? o.material : [o.material]).forEach((mt) => this.matList.push(mt));
       if (o.isSkinnedMesh) skinned = o;
     });
-    const B = {};
-    for (const k in BONES) B[k] = m.getObjectByName(BONES[k]);
+    this.rig = rigOf(name);
+    const BN = bonesOf(name), B = {};
+    for (const k in BN) B[k] = m.getObjectByName(BN[k]);
     this.B = B;
     // wear another person's head: hide ours, bind theirs to our skeleton
     this.faceMeshes = [];
@@ -562,7 +638,7 @@ export class Human {
     const srcByPos = new Map();
     ready.get(faceName).scene.traverse((o) => { if (o.isSkinnedMesh) srcByPos.set(o.geometry.attributes.position, o); });
     this.headPieces = [];
-    const pieces = this.faceMeshes.length ? this.faceMeshes : (() => { const a = []; m.traverse((o) => { if (o.isSkinnedMesh) a.push(o); }); return a; })();
+    const pieces = this.rig === "meshy" ? [] : this.faceMeshes.length ? this.faceMeshes : (() => { const a = []; m.traverse((o) => { if (o.isSkinnedMesh) a.push(o); }); return a; })();
     for (const o of pieces) {
       const mt = Array.isArray(o.material) ? o.material[0] : o.material;
       const srcMesh = srcByPos.get(o.geometry.attributes.position);
@@ -573,21 +649,21 @@ export class Human {
     m.traverse((o) => {
       if (!o.isSkinnedMesh || o.name === "face") return;
       const mt = Array.isArray(o.material) ? o.material[0] : o.material;
-      if (mt.name === "body" && mt.map) this.bodyParts.push({ mesh: o, mat: mt, base: mt.map });
+      if ((mt.name === "body" || this.rig === "meshy") && mt.map) this.bodyParts.push({ mesh: o, mat: mt, base: mt.map });
     });
     this.hairMats = headMats.filter((mt) => mt.name === "opacity" && mt.visible !== false);
     this.hairMats.forEach((mt) => (mt.userData.origMap = mt.map));
     this.hairMat = this.hairMats[0] || null;
     // animation
-    this.gender = outfitFor(this.look).body === "female" ? "f" : "m";
+    this.gender = (this.rig === "meshy" ? "b" : "") + (outfitFor(this.look).body === "female" ? "f" : "m");
     this.mixer = new THREE.AnimationMixer(m);
     this.actions = {};
     for (const c of clips[this.gender] || []) {
       const a = this.mixer.clipAction(c);
-      a.setLoop(THREE.LoopRepeat, Infinity);
+      if (c.name === "death") { a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; } else a.setLoop(THREE.LoopRepeat, Infinity);
       this.actions[c.name] = a;
     }
-    this.state = null; this.sitFixed = false;
+    this.state = null; this.sitFixed = false; this.dead = false;
     // attachment frames, measured in the bind pose (root-local space)
     this.root.updateMatrixWorld(true);
     const inv0 = this.root.matrixWorld.clone().invert();
@@ -672,7 +748,8 @@ export class Human {
     const natural = !col || col.hex === null;
     // the model's own hair (alpha-card hair on most women, painted on most men)
     // bald scalp unless the model's own hair is chosen
-    const bald = L.hair !== "natural" ? baldHeadMaps(this.faceName) : null;
+    const rb = this.rig !== "meshy";
+    const bald = rb && L.hair !== "natural" ? baldHeadMaps(this.faceName) : null;
     // delete the hair shells of the head mesh unless the natural hair is worn
     for (const hp of this.headPieces || []) {
       let geo = hp.full;
@@ -692,10 +769,12 @@ export class Human {
       hm.needsUpdate = true;
     }
     // pants dye
-    const pants = PANTS.find((p) => p.id === L.pants);
+    const pants = PANTS.find((p) => p.id === L.pants), outfit = outfitFor(L);
     for (const bp of this.bodyParts || []) {
       let map = bp.base;
-      if (pants && pants.id !== "orig") { try { map = pantsMap(`${this.modelName}>${this.faceName}>${pants.id}`, bp.mesh, bp.base, skinTone(this.faceName), pants); } catch (e) { console.warn("pants dye failed", e); } }
+      if (!rb) {
+        if ((pants && pants.id !== "orig") || outfit.shirt != null) try { map = baseDyeMap(`${this.modelName}>${pants?.id}>${outfit.shirt}`, bp.mesh, bp.base, pants, outfit.shirt); } catch (e) { console.warn("dye failed", e); }
+      } else if (pants && pants.id !== "orig") { try { map = pantsMap(`${this.modelName}>${this.faceName}>${pants.id}`, bp.mesh, bp.base, skinTone(this.faceName), pants); } catch (e) { console.warn("pants dye failed", e); } }
       if (bp.mat.map !== map) { bp.mat.map = map; bp.mat.needsUpdate = true; }
     }
     for (const hm of this.hairMats || []) {
@@ -704,9 +783,11 @@ export class Human {
       hm.color.setHex(natural ? 0xffffff : col.hex);
       hm.needsUpdate = true;
     }
-    if (L.hair !== "natural" && L.hair !== "bald") {
+    // strand hair; a Rocketbox person who goes "bald" gets a close shave (their mesh hair is removed above)
+    const style = L.hair === "bald" ? (rb ? "buzz" : null) : L.hair === "natural" ? null : L.hair;
+    if (style) {
       this.root.updateMatrixWorld(true);
-      this.hair = new HairSystem(this, L.hair, new THREE.Color(natural ? 0x3a2618 : col.hex), this.quality);
+      this.hair = new HairSystem(this, style, new THREE.Color(natural ? 0x3a2618 : col.hex), this.quality);
     }
     const item = CLOTH_ITEMS.find((c) => c.id === L.cloth);
     if (item && item.id !== "none") { this.root.updateMatrixWorld(true); Avatar.prototype.buildCloth.call(this, item); }
@@ -752,7 +833,14 @@ export class Human {
   resetSim() { if (this.hair) this.hair.needsReset = true; this.cloths.forEach((c) => (c.needsReset = true)); }
 
   /* ---------- per frame ---------- */
+  // play the death clip if this rig has one (returns false when it can only freeze)
+  die() {
+    if (!this.actions?.death) return false;
+    this.dead = true; this.holdingGun = false;
+    return true;
+  }
   pickState() {
+    if (this.dead) return "death";
     if (this.pose === "sit") return "sit";
     if (this.speed > 3.2) return "run";
     if (this.speed > 0.15) return "walk";
@@ -765,7 +853,7 @@ export class Human {
       const st = this.pickState();
       if (st !== this.state && this.actions[st]) {
         const next = this.actions[st];
-        next.reset(); if (st === "idle" || st === "sit") next.time = Math.random() * next.getClip().duration;
+        next.reset(); if (st === "idle" || (st === "sit" && this.rig !== "meshy")) next.time = Math.random() * next.getClip().duration;
         next.play();
         const prev = this.state && this.actions[this.state];
         if (prev) next.crossFadeFrom(prev, 0.3, false);

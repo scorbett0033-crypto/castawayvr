@@ -167,9 +167,10 @@ export class WardrobePanel extends Panel {
     const owned = save.owned[T.key];
     const list = T.key === "outfit" ? T.list.filter((o) => o.body === this.trying.body)
       : T.key === "face" ? T.list.filter((f) => f.id === "own" || f.body === this.trying.body) : T.list;
+    const dense = list.length > 12, cols = dense ? 5 : 4;
     list.forEach((item, i) => {
-      const col = i % 4, row = Math.floor(i / 4);
-      const tall = list.length <= 8, x = 28 + col * 306, y = 190 + row * (tall ? 196 : 156), w = 290, h = tall ? 180 : 146, py = tall ? 140 : 118, iy = tall ? 62 : 52;
+      const col = i % cols, row = Math.floor(i / cols);
+      const tall = list.length <= 8, x = 28 + col * (dense ? 245 : 306), y = 190 + row * (tall ? 196 : dense ? 120 : 156), w = dense ? 233 : 290, h = tall ? 180 : dense ? 110 : 146, py = tall ? 140 : dense ? 92 : 118, iy = tall ? 62 : dense ? 42 : 52;
       const hov = this.button("i" + i, x, y, w, h, () => {
         this.trying[T.key] = item.id;
         if (T.key === "body") { // keep an outfit that fits the chosen body
@@ -178,6 +179,9 @@ export class WardrobePanel extends Panel {
           const f = FACES.find((x) => x.id === this.trying.face);
           if (!f || (f.id !== "own" && f.body !== item.id)) this.trying.face = save.look.body === item.id ? save.look.face : "own";
         }
+        // faces are Rocketbox heads: wearing one on a basic tee switches to that person's own outfit
+        if (T.key === "face" && item.id !== "own" && OUTFITS.find((o) => o.id === this.trying.outfit)?.rig === "meshy") this.trying.outfit = (OUTFITS.find((o) => o.model === item.id) || {}).id || this.trying.outfit;
+        if (T.key === "outfit" && item.rig === "meshy") this.trying.face = "own";
         this.sfx.click(); this.onPreview({ ...this.trying });
       });
       rr(ctx, x, y, w, h, 14);
@@ -199,7 +203,7 @@ export class WardrobePanel extends Panel {
       } else {
         ctx.fillStyle = "#41c7b9"; ctx.font = `700 46px ${FONT}`; ctx.textAlign = "center"; ctx.fillText(item.icon || "✂", x + 54, y + iy + 2);
       }
-      ctx.textAlign = "left"; ctx.fillStyle = "#e8edf1"; ctx.font = `700 26px ${FONT}`;
+      ctx.textAlign = "left"; ctx.fillStyle = "#e8edf1"; ctx.font = `700 ${dense ? 21 : 26}px ${FONT}`;
       ctx.fillText(item.name, x + 100, y + iy);
       ctx.font = `600 22px ${FONT}`;
       if (save.look[T.key] === item.id) { ctx.fillStyle = "#5fe0a0"; ctx.fillText("WEARING", x + 22, y + py); }

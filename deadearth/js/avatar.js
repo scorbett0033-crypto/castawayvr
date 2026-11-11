@@ -10,7 +10,8 @@ const SKIN = 0xdcab90;
 
 /* ---------------- catalog ---------------- */
 export const HAIR_STYLES = [
-  { id: "natural", name: "Natural", price: 0, icon: "★" },
+  { id: "bald", name: "Bald", price: 0, icon: "◯" },
+  { id: "natural", name: "Outfit's Hair", price: 0, icon: "★" },
   { id: "crop", name: "Messy Crop", price: 0 },
   { id: "bob", name: "Shoulder Bob", price: 200 },
   { id: "ponytail", name: "Ponytail", price: 250 },
@@ -29,8 +30,17 @@ export const HAIR_COLORS = [
   { id: "crimson", name: "Crimson Dye", hex: 0x8e1220, price: 400 },
   { id: "teal", name: "Toxic Teal", hex: 0x1d8c84, price: 500 },
 ];
-// Realistic outfits: each one is a fully textured, rigged human (Microsoft Rocketbox library).
+// Realistic outfits. "Basics" are the bald base people (rig: meshy) with a re-dyeable tee;
+// the rest are fully textured, rigged humans from the Microsoft Rocketbox library (own face + hair).
+const BASICS = [
+  ["grey", "Grey Tee", 0x86888b, 0], ["white", "White Tee", null, 0], ["black", "Black Tee", 0x1c1d20, 100],
+  ["navy", "Navy Tee", 0x1f2e4a, 100], ["olive", "Olive Tee", 0x4c5236, 150], ["red", "Red Tee", 0x7e1f22, 150],
+];
 export const OUTFITS = [
+  ...["male", "female"].flatMap((body) => BASICS.map(([k, name, shirt, price]) => ({
+    id: (body === "male" ? "m_base" : "f_base") + (k === "grey" ? "" : "_" + k), name, body, model: body === "male" ? "base_bm" : "base_bf",
+    rig: "meshy", shirt, price, swatch: shirt ?? 0xe8e8e6,
+  }))),
   { id: "m_shirt", name: "Dark Shirt", body: "male", model: "Male_Adult_11", price: 0, swatch: 0x2b2a24 },
   { id: "m_bluetee", name: "Blue Tee", body: "male", model: "Male_Adult_16", price: 0, swatch: 0x2e4d78 },
   { id: "m_oxford", name: "Oxford Shirt", body: "male", model: "Male_Adult_08", price: 300, swatch: 0x9fb8d4 },
@@ -68,7 +78,8 @@ export const FACES = [
   { id: "Medical_Female_01", name: "Lin", body: "female", price: 200 },
   { id: "Military_Female_01", name: "Alex (helmet)", body: "female", price: 250 },
 ];
-export const faceFor = (look) => { const f = FACES.find((x) => x.id === look.face); return f && (f.id === "own" || f.body === look.body) ? f.id : "own"; };
+// faces are Rocketbox heads: they only fit Rocketbox outfits
+export const faceFor = (look) => { const f = FACES.find((x) => x.id === look.face); return f && (f.id === "own" || (f.body === look.body && outfitFor(look).rig !== "meshy")) ? f.id : "own"; };
 // Pants: re-dye the legs of any outfit (the fabric detail of the original texture is kept).
 export const PANTS = [
   { id: "orig", name: "Outfit's Own", price: 0, icon: "★" },
@@ -82,7 +93,7 @@ export const PANTS = [
   { id: "camo", name: "Desert Camo", price: 300, camo: [0xb3a37a, 0x8a7a55, 0x6b5f45, 0x4a4433] },
   { id: "navycamo", name: "Urban Camo", price: 300, camo: [0x8e9196, 0x5d6168, 0x3a3d43, 0x22252a] },
 ];
-export const defaultOutfit = (body) => (body === "female" ? "f_tee" : "m_shirt");
+export const defaultOutfit = (body) => (body === "female" ? "f_base" : "m_base");
 export const outfitFor = (look) => OUTFITS.find((o) => o.id === look.outfit && o.body === look.body) || OUTFITS.find((o) => o.id === defaultOutfit(look.body));
 // legacy procedural outfits (fallback body only)
 const PROC_OUTFITS = [
@@ -109,7 +120,7 @@ export const MASKS = [
   { id: "none", name: "Bare Face", price: 0, icon: "☺" },
   { id: "respirator", name: "Respirator", price: 0, icon: "◉" },
 ];
-export const DEFAULT_LOOK = { body: "male", face: "own", pants: "orig", hair: "natural", hairColor: "natural", outfit: "m_shirt", cloth: "none", mask: "none" };
+export const DEFAULT_LOOK = { body: "male", face: "own", pants: "orig", hair: "bald", hairColor: "natural", outfit: "m_base", cloth: "none", mask: "none" };
 
 /* painted face detail (sphere UV: face centre at u=0.25, v=0.5) */
 const faceCache = {};

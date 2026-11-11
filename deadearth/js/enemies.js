@@ -123,13 +123,14 @@ export class EnemyManager {
     this.sfx.wave();
   }
   spawnRival(x, z) {
-    const fits = ["m_combat", "m_ranger", "f_combat", "m_hoodie", "f_leather", "m_denim", "f_hoodie"]
+    const fits = ["m_combat", "m_ranger", "f_combat", "m_hoodie", "f_leather", "m_denim", "f_hoodie", "m_base_black", "f_base_olive", "m_base_navy", "f_base_black"]
       .map((id) => OUTFITS.find((o) => o.id === id)).filter((o) => o && modelReady(o.model));
     const fit = fits[Math.floor(Math.random() * fits.length)] || OUTFITS[0];
     const look = {
       body: fit.body, outfit: fit.id,
       face: (() => { const fs = FACES.filter((f) => f.body === fit.body && modelReady(f.id)); return Math.random() < 0.6 && fs.length ? fs[Math.floor(Math.random() * fs.length)].id : "own"; })(),
-      hair: Math.random() < 0.7 ? "natural" : HAIR_STYLES[1 + Math.floor(Math.random() * (HAIR_STYLES.length - 1))].id,
+      hair: fit.rig === "meshy" ? ["bald", "crop", "mohawk", "dreads", "ponytail", "crop"][Math.floor(Math.random() * 6)]
+        : Math.random() < 0.7 ? "natural" : HAIR_STYLES[2 + Math.floor(Math.random() * (HAIR_STYLES.length - 2))].id,
       hairColor: Math.random() < 0.7 ? "natural" : HAIR_COLORS[Math.floor(Math.random() * HAIR_COLORS.length)].id,
       cloth: ["none", "none", "scarf", "cloak", "duster"][Math.floor(Math.random() * 5)],
       mask: Math.random() < 0.5 ? "respirator" : "none",
@@ -230,7 +231,7 @@ export class EnemyManager {
   destroyBolt(bolt) { this.fx.sparks(bolt.mesh.position, UP, 14, 0xffa040); this.scene.remove(bolt.mesh); bolt.dead = true; }
   kill(e, dir) {
     e.dead = true; e.deathT = 0;
-    if (e.kind === "rival") { e.tag.visible = false; e.av.speed = 0; e.av.holdingGun = false; e.av.frozen = true; this.sfx.hurt(); return; }
+    if (e.kind === "rival") { e.tag.visible = false; e.av.speed = 0; e.av.holdingGun = false; e.animDeath = e.av.die(); if (!e.animDeath) e.av.frozen = true; this.sfx.hurt(); return; }
     const p = e.g.position.clone();
     this.fx.explosion(p, e.kind === "drone" ? 1 : 1.5);
     this.sfx.explode(0, e.kind === "drone" ? 0.8 : 1.1);
@@ -258,7 +259,7 @@ export class EnemyManager {
       if (e.dead && e.kind === "rival") {
         e.deathT += dt;
         const k = Math.min(1, e.deathT / 0.7);
-        e.av.root.rotation.x = -k * k * Math.PI / 2;
+        if (!e.animDeath) e.av.root.rotation.x = -k * k * Math.PI / 2; // no death clip: topple stiffly
         e.gun.position.y = Math.max(H(e.gun.position.x, e.gun.position.z) + 0.05, e.gun.position.y - dt * 3);
         e.gun.rotation.z = Math.min(Math.PI / 2, e.gun.rotation.z + dt * 4);
         e.av.update(dt, this.wind.vec);

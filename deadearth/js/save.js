@@ -11,6 +11,7 @@ function fresh() {
     equipped: "pistol",
     owned: { body: free(BODY_TYPES), face: free(FACES), pants: free(PANTS), mask: free(MASKS), hair: free(HAIR_STYLES), hairColor: free(HAIR_COLORS), outfit: free(OUTFITS), cloth: free(CLOTH_ITEMS) },
     look: { ...DEFAULT_LOOK },
+    baseLook: 1,
     stats: { kills: 0, bestWave: 0, runs: 0 },
   };
 }
@@ -24,12 +25,14 @@ function load() {
     const owned = { ...f.owned };
     for (const k in s.owned || {}) owned[k] = [...new Set([...(f.owned[k] || []), ...s.owned[k]])];
     const look = { ...f.look, ...(s.look || {}) };
+    // everyone starts over as the bald base person (hair is put on in the wardrobe)
+    if (!s.baseLook) { look.body = look.body === "female" ? "female" : "male"; look.outfit = look.body === "female" ? "f_base" : "m_base"; look.face = "own"; look.hair = "bald"; }
     look.outfit = outfitFor(look).id;
     look.face = faceFor(look);
-    if (!HAIR_STYLES.find((x) => x.id === look.hair)) look.hair = "natural";
+    if (!HAIR_STYLES.find((x) => x.id === look.hair)) look.hair = "bald";
     if (!PANTS.find((x) => x.id === look.pants)) look.pants = "orig";
     if (!HAIR_COLORS.find((x) => x.id === look.hairColor)) look.hairColor = "natural";
-    return { ...f, ...s, owned, look, stats: { ...f.stats, ...(s.stats || {}) } };
+    return { ...f, ...s, owned, look, baseLook: 1, stats: { ...f.stats, ...(s.stats || {}) } };
   } catch { return fresh(); }
 }
 
