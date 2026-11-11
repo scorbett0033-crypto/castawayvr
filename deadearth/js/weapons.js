@@ -264,6 +264,7 @@ export function buildGun(id, M) {
 }
 
 export class GunState {
+  static pool = null;
   constructor(def) {
     this.def = def;
     this.ammo = def.mag;
@@ -282,7 +283,7 @@ export class GunState {
     this.pumpT = Math.max(0, this.pumpT - dt);
     if (this.reloadT > 0) {
       this.reloadT -= dt;
-      if (this.reloadT <= 0) { this.ammo = this.def.mag; this.magOut = false; this.reloadT = 0; return "reloaded"; }
+      if (this.reloadT <= 0) { this.ammo = this.take(); this.magOut = false; this.reloadT = 0; return "reloaded"; }
     }
     return null;
   }
@@ -293,6 +294,9 @@ export class GunState {
     this.kick = 1;
     if (this.def.id === "shotgun") this.pumpT = 0.45;
   }
-  startTimedReload() { if (this.reloadT > 0 || this.ammo === this.def.mag) return false; this.reloadT = this.def.reload; this.magOut = true; return true; }
-  insertMag() { this.ammo = this.def.mag; this.magOut = false; this.reloadT = 0; }
+  // rounds for a fresh magazine come out of the shared reserve (GunState.pool); no pool = endless
+  take() { const p = GunState.pool; if (!p) return this.def.mag; const n = Math.min(this.def.mag, p.rounds); p.rounds -= n; return n; }
+  hasReserve() { return !GunState.pool || GunState.pool.rounds > 0; }
+  startTimedReload() { if (this.reloadT > 0 || this.ammo === this.def.mag || !this.hasReserve()) return false; this.reloadT = this.def.reload; this.magOut = true; return true; }
+  insertMag() { this.ammo = this.take(); this.magOut = false; this.reloadT = 0; }
 }

@@ -186,12 +186,14 @@ function hairlineAlpha() {
   const W = 512, H = 128, c = document.createElement("canvas"); c.width = W; c.height = H;
   const x = c.getContext("2d"), img = x.createImageData(W, H), rnd = mulberry32(41);
   const edge = new Float32Array(W); // per-column hairline height with smooth + jagged variation
-  for (let i = 0; i < W; i++) edge[i] = 0.1 + 0.035 * Math.sin(i / W * Math.PI * 6) + 0.025 * Math.sin(i / W * Math.PI * 22 + 1.3);
-  for (let i = 0; i < W; i++) edge[i] += (rnd() - 0.5) * 0.06;
+  for (let i = 0; i < W; i++) edge[i] = 0.12 + 0.03 * Math.sin(i / W * Math.PI * 6) + 0.02 * Math.sin(i / W * Math.PI * 22 + 1.3);
+  // wisps: thin hair-like streaks of varying length reaching below the hairline
+  const wisp = new Float32Array(W);
+  for (let i = 0; i < W; i++) wisp[i] = rnd() * 0.025;
   for (let yy = 0; yy < H; yy++) for (let i = 0; i < W; i++) {
     const v = 1 - yy / (H - 1); // canvas row 0 = uv.y 1 (top of the cap)
-    const t = (v - edge[i]) / 0.07; // soft ramp above the hairline
-    const a = Math.max(0, Math.min(1, t + (rnd() - 0.5) * 0.9));
+    const t = (v - edge[i] + wisp[i]) / 0.14; // wide, soft ramp above the hairline
+    const a = Math.max(0, Math.min(1, t * (0.75 + rnd() * 0.5)));
     const o = (yy * W + i) * 4; img.data[o] = img.data[o + 1] = img.data[o + 2] = a * 255; img.data[o + 3] = 255;
   }
   x.putImageData(img, 0, 0);
@@ -205,8 +207,9 @@ export class HairSystem {
     const P = STYLE_PARAMS[style];
     this.group = new THREE.Group();
     const capMat = new THREE.MeshStandardMaterial({
-      color, map: avatar.tex.hair.map, normalMap: avatar.tex.hair.normalMap, roughness: 0.6,
+      color, map: avatar.tex.hair.map, normalMap: avatar.tex.hair.normalMap, normalScale: new THREE.Vector2(0.5, 0.5), roughness: 0.85,
       alphaMap: hairlineAlpha(), alphaTest: 0.5, alphaToCoverage: true, // soft, uneven hairline instead of a hard edge
+      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4, // always wins against the scalp right under it (no flicker)
     });
     const cap = new THREE.Mesh(new THREE.SphereGeometry(CAP_R, 32, 16, 0, Math.PI * 2, 0, style === "buzz" ? CAP_THETA * 0.97 : CAP_THETA), capMat);
     cap.position.copy(CAP_C);
@@ -252,8 +255,12 @@ export class HairSystem {
       if (P.mohawk) d0.add(new THREE.Vector3(0, 0.6, -0.15));
       else if (P.sweepBack) d0.add(new THREE.Vector3(-dir.x * 0.3, 0.2, -1));
       else d0.add(new THREE.Vector3(0, -0.4, -0.25));
-      if (P.frame && dir.z > 0.25) d0.add(new THREE.Vector3(Math.sign(dir.x || 1) * 0.45, 0, -0.35)); // part away from face
-      const L = P.len * (0.85 + rnd() * 0.3);
+      let L = P.len * (0.85 + rnd() * 0.3);
+      if (P.frame && dir.z > 0.2) {
+        if (Math.abs(dir.x) < 0.28 && dir.y < 0.75) { d0.set(dir.x * 0.6, -0.25, 1.0); L = 0.075 + rnd() * 0.035; } // short bangs over the hairline (stop above the eyes)
+        else d0.add(new THREE.Vector3(dir.x * 1.4, 0.35, -1.0)); // the rest swept back and aside: face clear
+      }
+      if (!P.frame && !P.mohawk && !P.sweepBack && dir.z > 0.3) { d0.add(new THREE.Vector3(dir.x * 0.4, 0.55, -0.7)); L *= 0.55 + rnd() * 0.35; } // short front: swept up and back, uneven
       addStrand(root, d0, P.nodes, L, P.stiff, P.bend, P.width);
     }
     if (P.tail) {

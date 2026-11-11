@@ -103,7 +103,7 @@ function headInfo(name) {
     const csz = cb.getSize(new THREE.Vector3());
     const rx = THREE.MathUtils.clamp(csz.x / 2, 0.06, 0.1), rz = THREE.MathUtils.clamp(csz.z / 2, 0.07, 0.12), ry = (rx + rz) / 2;
     const c = cb.getCenter(new THREE.Vector3()); c.y = cb.max.y - ry;
-    const k = 1 / 1.09 / 0.1 * 1.05; // 5% clearance over the skull
+    const k = 1 / 1.09 / 0.1 * 1.065; // 6.5% clearance over the skull
     const info = { local: head.worldToLocal(c), r: (rx + rz) / 2, scale: new THREE.Vector3(rx * k, ry * k, rz * k) };
     headCache.set(name, info);
     return info;

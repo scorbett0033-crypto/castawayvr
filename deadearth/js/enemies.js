@@ -218,12 +218,25 @@ export class EnemyManager {
     hits.sort((a, b) => a.dist - b.dist);
     return hits;
   }
-  // returns coins awarded if killed (rivals drop the stake they carry)
+  // returns coins awarded straight away if killed. Raiders instead BLEED coins from their stake when hit
+  // and spill everything left when they die (this.onSpill(point, coins, dir)) - collect them with a wrist flick.
   damage(e, amount, point, dir) {
     if (e.dead) return 0;
     e.hp -= amount;
-    if (e.kind === "rival") { this.fx.sparks(point, dir.clone().negate(), 8, 0xc02818); e.repathT = 0; }
-    else this.fx.sparks(point, dir.clone().negate(), 10, 0xffc070);
+    if (e.kind === "rival") {
+      this.fx.sparks(point, dir.clone().negate(), 8, 0xc02818); e.repathT = 0;
+      if (e.hp > 0) {
+        const lose = Math.min(e.stake, Math.max(1, Math.round(e.stake * Math.min(0.3, amount / 260))));
+        if (lose > 0) { e.stake -= lose; this.updateTag(e); this.onSpill?.(point, lose, dir); }
+      } else {
+        this.kill(e, dir);
+        const chest = e.av.j.chest ? e.av.j.chest.getWorldPosition(new THREE.Vector3()) : point;
+        if (e.stake > 0) this.onSpill?.(chest, e.stake, dir);
+        e.stake = 0;
+      }
+      return 0;
+    }
+    this.fx.sparks(point, dir.clone().negate(), 10, 0xffc070);
     if (e.kind === "drone") e.vel.addScaledVector(dir, 2.5);
     if (e.hp <= 0) { this.kill(e, dir); return e.reward; }
     return 0;
@@ -377,6 +390,11 @@ export class EnemyManager {
   creditKiller(src, coins) {
     const e = this.list.find((x) => x.src === src);
     if (e && !e.dead) { e.stake += coins; this.updateTag(e); }
+  }
+  // where a raider's coins fly to (their left wrist)
+  wristOf(src) {
+    const e = this.list.find((x) => x.src === src);
+    return e && !e.dead ? (e.av.B?.lHand || e.av.root) : null;
   }
   updateDrone(e, dt, t, player, H, tmp, to) {
     e.orbit += e.orbitDir * dt * 0.35;

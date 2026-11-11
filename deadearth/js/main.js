@@ -13,6 +13,7 @@ import { FX } from "./fx.js";
 import { Sfx } from "./audio.js";
 import { save, persist, addCoins, trySpend, onSave } from "./save.js";
 import { ShopPanel, WardrobePanel, WristHUD, Panel, makeLaser } from "./ui.js";
+import { Loot } from "./loot.js";
 
 const $ = (id) => document.getElementById(id);
 const loadBar = $("loadbar"), loadTxt = $("loadtxt");
@@ -60,7 +61,10 @@ let T, WM, lobby, waste, enemies, shop, wardrobe, stakePanel, wrist, playerAvata
 let mode = "loading";
 let scene = null;
 const surfaceWind = new Wind(5.5, 0.7);
-const player = { hp: 100, regenT: 0, seated: null, dead: false, extractT: 0, beaconT: 0, kills: 0, runCoins: 0, carried: 0, stake: 0, stakeSel: 0, moving: false };
+const player = { hp: 100, regenT: 0, seated: null, dead: false, extractT: 0, beaconT: 0, kills: 0, runCoins: 0, carried: 0, stake: 0, stakeSel: 0, moving: false,
+  wound: null, bleedT: 0, ammoBleedT: 0, bandages: 2, medkits: 1, healHold: 0 };
+const loot = new Loot();
+const START_ROUNDS = 150;
 const STAKES = [50, 100, 250, 500, 1000];
 const gunStates = new Map();
 let gun = null, gunState = null, gunId = null;
@@ -118,6 +122,7 @@ addEventListener("keydown", (e) => {
   if (e.code === "KeyR" && mode === "surface" && gunState?.startTimedReload()) { sfx.magOut(); gun.userData.mag.visible = false; }
   if (/^Digit[1-6]$/.test(e.code)) { const w = WEAPONS[+e.code.slice(5) - 1]; if (w && save.weapons.includes(w.id)) equip(w.id); }
   if (e.code === "KeyL" && mode === "surface") goLobby("Extracted.");
+  if (e.code === "KeyG" && mode === "surface") flickCollect();
 });
 addEventListener("keyup", (e) => (keys[e.code] = false));
 renderer.domElement.addEventListener("mousedown", (e) => {
@@ -203,9 +208,14 @@ function fire() {
     let stopped = false;
     for (const h of hits) {
       if (h.bolt) { if (!h.bolt.dead) { enemies.destroyBolt(h.bolt); addReward(5, h.point); } end = h.point; stopped = !def.pierce; if (stopped) break; continue; }
+      const wasDead = h.enemy.dead;
       const reward = enemies.damage(h.enemy, def.dmg * (h.weak ? 2.5 : 1), h.point, shotDir);
       hitSomething = true;
-      if (reward) { gotKill = true; player.kills++; save.stats.kills++; addReward(reward, h.point, h.enemy.kind === "rival" ? `· ${h.enemy.name}'s stake` : ""); if (h.enemy.kind === "rival") toast(`You took Raider ${h.enemy.name}'s ${reward} ¢ stake!`); }
+      if (!wasDead && h.enemy.dead) {
+        gotKill = true; player.kills++; save.stats.kills++;
+        if (h.enemy.kind === "rival") toast(`Raider ${h.enemy.name} is down — flick your wrist and look at it to pull in their coins${renderer.xr.isPresenting ? "" : " (G)"}.`);
+      }
+      if (reward) addReward(reward, h.point);
       if (!def.pierce) { end = h.point; stopped = true; break; }
     }
     if (!stopped && world) {
@@ -248,6 +258,136 @@ function addReward(n, pos, label = "") {
   scene.add(s); pops.push(s);
 }
 
+/* ================= wounds: bleeding coins and ammo ================= */
+// where the wound is: on the chest, under the head, facing the way you look
+function woundPos() {
+  const f = camera.getWorldDirection(new THREE.Vector3()); f.y = 0; f.normalize();
+  return headW.clone().add(new THREE.Vector3(0, -0.48, 0)).addScaledVector(f, 0.14);
+}
+// drip `n` coins out of the wound (they're yours: grab them and press them back in)
+function bleed(n, dir) {
+  const coins = Math.min(player.carried, n * (player.wound?.bad ? 3 : 2));
+  if (coins <= 0) return;
+  player.carried -= coins;
+  const f = camera.getWorldDirection(new THREE.Vector3()); f.y = 0; f.normalize();
+  loot.spillCoins(woundPos(), coins, "self", { maxN: n, speed: 0.6, up: 0.6, dir: f.multiplyScalar(0.9) });
+}
+let lastCoinSfx = 0;
+function coinIn(c) {
+  player.carried += c.value; player.runCoins += c.value;
+  const now = performance.now(); if (now - lastCoinSfx > 60) { sfx.coin(); lastCoinSfx = now; }
+}
+// put coins back: they fly into the wound
+function returnToWound(coins) {
+  if (!coins.length) return;
+  loot.fly(coins, () => woundPos(), coinIn, 0.03);
+}
+// flick your wrist and look at it: every dropped coin nearby flies to your wrist
+const flick = { t: -9, q: new THREE.Quaternion(), has: false };
+function flickCollect() {
+  const coins = loot.near(headW, 14, "drop");
+  if (!coins.length) { toast("No dropped coins nearby."); return; }
+  const L = hands.left, xr = renderer.xr.isPresenting;
+  const target = xr && L ? L.grip : () => camera.localToWorld(new THREE.Vector3(-0.15, -0.25, -0.35));
+  loot.fly(coins, target, (c) => { coinIn(c); if (xr && L) haptic(L, 0.15, 10); }, 0.02);
+  sfx.coin();
+}
+const woundW = new THREE.Vector3(), gripW = new THREE.Vector3();
+function updateWounds(dt, xr, L, R) {
+  if (player.dead) return;
+  const w = player.wound;
+  if (w) {
+    player.bleedT -= dt;
+    if (player.bleedT <= 0) { player.bleedT = w.bad ? 0.45 : 1.1; bleed(1); }
+    if (w.bad && GunState.pool) {
+      player.ammoBleedT -= dt;
+      if (player.ammoBleedT <= 0) {
+        player.ammoBleedT = 3.5;
+        const r = Math.min(GunState.pool.rounds, 12);
+        if (r > 0) { GunState.pool.rounds -= r; loot.dropAmmo(woundPos(), r); }
+      }
+      player.hp = Math.max(1, player.hp - dt * 0.8); // a bad wound slowly weakens you
+    }
+  }
+  woundW.copy(woundPos());
+  // VR: squeeze the left grip near your coins to scoop them up, then press them into the wound
+  if (xr && L && !twoHanded) {
+    L.grip.getWorldPosition(gripW);
+    if (btn(L, 1)) {
+      const near = loot.near(gripW, 0.16, "self");
+      if (near.length) { loot.hold(near, L.grip); haptic(L, 0.3, 20); }
+      const held = loot.heldBy(L.grip);
+      if (held.length && gripW.distanceTo(woundW) < 0.22) { loot.take(held); held.forEach(coinIn); haptic(L, 0.6, 40); }
+    } else if (loot.heldBy(L.grip).length) loot.release(L.grip);
+    // wrist flick (fast twist) then look at the watch = pull dropped coins in
+    const q = L.grip.getWorldQuaternion(tmpQ);
+    if (flick.has) { const ang = 2 * Math.acos(Math.min(1, Math.abs(flick.q.dot(q)))); if (ang / Math.max(dt, 1e-3) > 7) flick.t = clock.elapsedTime; }
+    flick.q.copy(q); flick.has = true;
+    if (clock.elapsedTime - flick.t < 0.8) {
+      const toWrist = gripW.clone().sub(headW).normalize(), fwd = camera.getWorldDirection(new THREE.Vector3());
+      const face = new THREE.Vector3(0, 0, 1).applyQuaternion(wrist.mesh.getWorldQuaternion(new THREE.Quaternion()));
+      if (fwd.dot(toWrist) > 0.85 && face.dot(toWrist.clone().negate()) > 0.4 && loot.near(headW, 14, "drop").length) { flick.t = -9; flickCollect(); }
+    }
+  }
+  // patch it up: hold X (VR) or H (desktop) — bandage for a light wound, medkit for a bad one
+  const holding = xr ? btn(L, 4) : !!keys.KeyH;
+  if (w && holding) {
+    player.healHold += dt;
+    if (player.healHold > 1.2) {
+      player.healHold = 0;
+      if (w.bad) {
+        if (player.medkits > 0) { player.medkits--; player.wound = null; player.hp = Math.min(100, player.hp + 40); toast("Medkit applied — the bleeding stopped."); sfx.click(); }
+        else if (player.bandages > 0) { player.bandages--; w.bad = false; toast("A bandage won't close this — it's slowed down. You need a medkit."); sfx.click(); }
+        else { toast("No medkits or bandages left!"); sfx.deny(); }
+      } else if (player.bandages > 0) { player.bandages--; player.wound = null; toast("Bandaged — the bleeding stopped."); sfx.click(); }
+      else if (player.medkits > 0) { player.medkits--; player.wound = null; player.hp = Math.min(100, player.hp + 40); toast("Used a medkit — the bleeding stopped."); sfx.click(); }
+      else { toast("No bandages left!"); sfx.deny(); }
+    }
+  } else player.healHold = 0;
+  // ammo boxes: grab them (left grip in VR, E on desktop)
+  if (xr && L && btn(L, 1) && !twoHanded) takeAmmo(gripW, 0.22);
+  // desktop hint
+  if (!xr) {
+    const mine = loot.near(headW, 3, "self").length;
+    if (w) desktopPrompt = `${w.bad ? "BLEEDING BADLY" : "BLEEDING"} — ${mine ? "E: pick up your coins · " : ""}hold H: ${w.bad ? "medkit" : "bandage"}${player.healHold > 0 ? " " + Math.round(player.healHold / 1.2 * 100) + "%" : ""}`;
+    else if (mine) desktopPrompt = "E: pick up your coins and put them back";
+    else if (loot.boxes.some((b) => b.mesh.position.distanceTo(headW) < 2.4)) desktopPrompt = "E: pick up the ammo";
+    else if (loot.near(headW, 14, "drop").length) desktopPrompt = "G: flick your wrist to pull the dropped coins in";
+  }
+}
+
+function hurtPlayer(dmg, dir, src) {
+  const R = hands.right, L = hands.left;
+  if (player.dead) return;
+  player.hp -= dmg; player.regenT = 4; hurtAmt.value = Math.min(1, hurtAmt.value + 0.6);
+  sfx.hurt(); haptic(R, 0.9, 120); haptic(L, 0.9, 120);
+  // every hit opens (or worsens) a wound that bleeds coins; a hard hit spurts some straight away
+  const bad = dmg >= 18 || (player.wound && dmg >= 8);
+  if (!player.wound) { player.wound = { bad }; player.bleedT = 0.4; toast(bad ? "Badly wounded! You're bleeding coins and ammo — grab them back, then use a medkit." : "You're bleeding coins — grab them back and press them into the wound, then bandage it."); }
+  else if (bad && !player.wound.bad) { player.wound.bad = true; toast("The wound is bad now — you need a medkit."); }
+  if (player.hp > 0) bleed(bad ? 4 : 1, dir);
+  if (player.hp <= 0) {
+    player.hp = 0; player.dead = true;
+    const lost = player.carried;
+    let msg;
+    // everything you carried spills out: coins and every round of ammo
+    const p = woundPos();
+    if (lost > 0) loot.spillCoins(p, lost, "drop", { maxN: 45, speed: 2.2, up: 2 });
+    if (GunState.pool?.rounds) { loot.dropAmmo(p, GunState.pool.rounds); GunState.pool.rounds = 0; }
+    gunStates.forEach((g) => (g.ammo = 0));
+    if (src && src.kind === "rival") {
+      enemies.creditKiller(src, lost);
+      const wrist = enemies.wristOf(src);
+      if (wrist) setTimeout(() => loot.fly(loot.near(p, 6, "drop"), wrist, () => {}), 900); // the killer flicks them in
+      msg = `${src.name} killed you and took your ${lost} ¢ and all your ammo.`;
+    } else msg = `Killed by ${src ? src.name : "the wasteland"}. Your ${lost} ¢ and your ammo are lost in the ash.`;
+    player.carried = 0; player.wound = null;
+    toast(msg);
+    setTimeout(() => goLobby(msg), 3000);
+  }
+
+}
+
 /* ================= transitions ================= */
 function startFade(then) { fade = { t: 0, dir: 1, then }; }
 function placeRig(pos, yawAngle) {
@@ -269,6 +409,7 @@ function enterLobby(msg) {
   dropped.forEach((m) => m.parent?.remove(m)); dropped.length = 0;
   pops.forEach((p) => p.parent?.remove(p)); pops.length = 0;
   if (hands.left?.carryMag) { hands.left.carryMag.parent?.remove(hands.left.carryMag); hands.left.carryMag = null; }
+  loot.clear(); GunState.pool = null; player.wound = null;
   setScene(lobby.scene);
   placeRig(lobby.spawn.pos, lobby.spawn.yaw);
   lobby.closeDoor();
@@ -288,6 +429,11 @@ function enterSurface() {
   placeRig(waste.spawn.pos, 0);
   fx.heightAt = waste.heightAt;
   player.hp = 100; player.dead = false; player.seated = null; player.kills = 0; player.runCoins = 0; player.extractT = 0; player.beaconT = 0;
+  player.wound = null; player.bleedT = 0; player.ammoBleedT = 0; player.bandages = 2; player.medkits = 1; player.healHold = 0;
+  GunState.pool = { rounds: START_ROUNDS };
+  gunStates.forEach((g) => { g.ammo = g.def.mag; g.magOut = false; g.reloadT = 0; });
+  loot.attach(waste.scene, waste.heightAt);
+  enemies.onSpill = (p, coins, dir) => loot.spillCoins(p, coins, "drop", { maxN: Math.min(30, Math.ceil(coins / 5)), dir: dir.clone().multiplyScalar(0.6) });
   save.stats.runs++; persist();
   equip(save.equipped);
   enemies.startRun();
@@ -333,7 +479,7 @@ function updateDomHud(dt) {
   $("hp").style.width = player.hp + "%";
   $("hp").style.background = player.hp > 35 ? "#4fe08f" : "#ff4a3a";
   $("coins").textContent = mode === "surface" ? `${player.carried.toLocaleString()} ¢ at risk` : `${save.coins.toLocaleString()} ¢`;
-  $("ammo").textContent = mode === "surface" && gunState ? `${gunState.def.name}  ${gunState.reloadT > 0 ? "RELOADING" : gunState.ammo + " / " + gunState.def.mag}` : "";
+  $("ammo").textContent = mode === "surface" && gunState ? `${gunState.def.name}  ${gunState.reloadT > 0 ? "RELOADING" : gunState.ammo + " / " + gunState.def.mag}  ·  ${GunState.pool ? GunState.pool.rounds : "∞"} spare  ·  bandages ${player.bandages}  medkits ${player.medkits}` : "";
   $("wave").textContent = mode === "surface" ? (enemies.wave === 0 || enemies.remaining() === 0 ? `WAVE ${enemies.wave + 1} INCOMING…` : `WAVE ${enemies.wave} · ${enemies.remaining()} hostiles`) : player.seated ? "Seated — press E to stand" : "";
   $("prompt").textContent = desktopPrompt;
   $("cross").style.display = document.pointerLockElement ? "block" : "none";
@@ -427,7 +573,12 @@ function updateHover(hits) {
   for (const p of lastHover) if (!now.has(p)) p.hover(null);
   lastHover.clear(); now.forEach((p) => lastHover.add(p));
 }
+function takeAmmo(p, r) {
+  const got = loot.pickupAmmo(p, r);
+  if (got && GunState.pool) { GunState.pool.rounds += got; toast(`+${got} rounds`); sfx.magIn(); }
+}
 function desktopUse() {
+  if (mode === "surface") { returnToWound(loot.near(headW, 3, "self")); takeAmmo(headW, 2.4); return; }
   if (mode !== "lobby") return;
   if (player.seated) { standUp(); return; }
   const o = camera.getWorldPosition(new THREE.Vector3()), d = camera.getWorldDirection(new THREE.Vector3());
@@ -575,7 +726,7 @@ function frame() {
     const trigPressed = xr ? pressed(R, 0) : mouseClicked && !!document.pointerLockElement;
     if (!player.dead && gunState && (trigPressed || (trig && gunState.def.auto))) {
       if (gunState.canFire() && (gunState.pumpT <= 0)) fire();
-      else if (trigPressed && (gunState.ammo === 0 || gunState.magOut)) { sfx.dry(); if (!xr && gunState.startTimedReload()) { sfx.magOut(); gun.userData.mag.visible = false; } }
+      else if (trigPressed && (gunState.ammo === 0 || gunState.magOut)) { sfx.dry(); if (!gunState.hasReserve()) toast("Out of ammo — pick up ammo boxes off the ground."); else if (!xr && gunState.startTimedReload()) { sfx.magOut(); gun.userData.mag.visible = false; } }
     }
     /* VR reload: A ejects; bring the fresh mag (left hand) to the magwell. A again = auto reload. B = switch. */
     if (xr && R && !player.dead) {
@@ -602,25 +753,14 @@ function frame() {
     if (extract >= 1) goLobby("Extracted safely.");
     /* enemies */
     const feet = new THREE.Vector3(headW.x, rig.position.y, headW.z);
-    enemies.update(dt, t, { head: headW, feet, moving: playerAvatar.speed > 0 }, (dmg, dir, src) => {
-      if (player.dead) return;
-      player.hp -= dmg; player.regenT = 4; hurtAmt.value = Math.min(1, hurtAmt.value + 0.6);
-      sfx.hurt(); haptic(R, 0.9, 120); haptic(L, 0.9, 120);
-      if (player.hp <= 0) {
-        player.hp = 0; player.dead = true;
-        const lost = player.carried;
-        let msg;
-        if (src && src.kind === "rival") { enemies.creditKiller(src, lost); msg = `${src.name} killed you and took your ${lost} ¢.`; }
-        else msg = `Killed by ${src ? src.name : "the wasteland"}. Your ${lost} ¢ is lost in the ash.`;
-        player.carried = 0;
-        toast(msg);
-        setTimeout(() => goLobby(msg), 3000);
-      }
-    });
-    if (player.regenT > 0) player.regenT -= dt; else player.hp = Math.min(100, player.hp + dt * 6);
+    enemies.update(dt, t, { head: headW, feet, moving: playerAvatar.speed > 0 }, hurtPlayer);
+    if (player.regenT > 0) player.regenT -= dt; else if (!player.wound) player.hp = Math.min(100, player.hp + dt * 6);
+    updateWounds(dt, xr, L, R);
     waste.update(dt, t, headW, surfaceWind.vec);
     sfx.setAmbience("surface", surfaceWind.gust);
-    wrist.set({ hp: Math.round(player.hp), coins: save.coins, risk: player.carried, wave: enemies.wave, left: enemies.remaining(), extract: Math.min(1, extract) });
+    wrist.set({ hp: Math.round(player.hp), coins: save.coins, risk: player.carried, wave: enemies.wave, left: enemies.remaining(), extract: Math.min(1, extract),
+      msg: player.wound ? (player.wound.bad ? `BLEEDING BADLY · medkits ${player.medkits}` : `BLEEDING · bandages ${player.bandages}`) : `ammo ${GunState.pool ? GunState.pool.rounds : "∞"} · ✚${player.bandages} ✚✚${player.medkits}` });
+    loot.update(dt);
     for (let i = dropped.length - 1; i >= 0; i--) {
       const m = dropped[i]; m.userData.life -= dt;
       m.userData.vel.y -= 9.8 * dt; m.position.addScaledVector(m.userData.vel, dt); m.rotation.x += dt * 3;
@@ -787,7 +927,7 @@ window.__deadEarth = {
   get mode() { return mode; }, rig, camera, player, keys,
   look(y, p = 0) { yaw = y; pitch = p; },
   surface() { player.stake = player.carried = 100; enterSurface(); }, lobby() { enterLobby(); }, portal(v) { player.stakeSel = v; portalCooldown = 0; tryPortal(); }, get stakePanel() { return stakePanel; },
-  third(v) { thirdPerson = v; }, get avatar() { return playerAvatar; },
+  third(v) { thirdPerson = v; }, get avatar() { return playerAvatar; }, hurt(d, src) { hurtPlayer(d, new THREE.Vector3(0, 0, 1), src || null); }, get loot() { return loot; }, flick() { flickCollect(); }, use() { desktopUse(); },
   sitNearest() { const s = lobby.seats.find((x) => !x.taken); if (s) { s.aligned = s.placed = false; sitOn(s); } },
   stand() { standUp(); },
   get enemies() { return enemies; }, get save() { return save; }, get lobbyWorld() { return lobby; }, get wardrobe() { return wardrobe; },
