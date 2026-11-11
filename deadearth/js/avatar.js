@@ -1082,3 +1082,61 @@ export class Avatar {
   // Teleports (sit down / spawn) should not drag hair & cloth across the room.
   resetSim() { if (this.hair) this.hair.needsReset = true; this.cloths.forEach((c) => (c.needsReset = true)); }
 }
+
+/* ---------------- realistic articulated hand (first person) ----------------
+ * Same convention as makeGlove: fingers along -Z, back of the hand +Y, palm -Y, thumb on the +X side for side=1.
+ * userData.setCurl(0..1) closes the hand into a natural grip, userData.setSkin(hex) re-tints it. */
+export function makeHand(side = 1, skinHex = 0xc9a48e, skinTex = null) {
+  const g = new THREE.Group();
+  const skin = new THREE.MeshStandardMaterial({ color: skinHex, roughness: 0.55, metalness: 0, ...(skinTex ? { normalMap: skinTex.normalMap, normalScale: new THREE.Vector2(0.35, 0.35) } : {}) });
+  const nailM = new THREE.MeshStandardMaterial({ color: 0xf3d9cf, roughness: 0.22, metalness: 0 });
+  const add = (parent, geo, mat, pos, rot = [0, 0, 0], scl = [1, 1, 1]) => { const m = new THREE.Mesh(geo, mat); m.position.set(...pos); m.rotation.set(...rot); m.scale.set(...scl); m.castShadow = true; parent.add(m); return m; };
+  const sph = new THREE.SphereGeometry(1, 24, 16);
+  // palm: flattened ellipsoid, a little thicker at the knuckles, thumb muscle and the heel of the hand
+  add(g, sph, skin, [0, 0, -0.005], [0, 0, 0], [0.043, 0.0145, 0.05]);
+  add(g, sph, skin, [0.006 * side, 0.002, -0.036], [0, 0, 0], [0.042, 0.015, 0.018]); // knuckle row
+  add(g, sph, skin, [0.024 * side, -0.006, 0.012], [0, 0.5 * side, 0], [0.018, 0.013, 0.028]); // thenar (thumb) muscle
+  add(g, sph, skin, [-0.022 * side, -0.004, 0.018], [0, 0, 0], [0.016, 0.012, 0.024]); // hypothenar
+  // wrist into the forearm
+  add(g, new THREE.CylinderGeometry(0.021, 0.023, 0.05, 20), skin, [0, -0.001, 0.058], [Math.PI / 2, 0, 0], [1.2, 1, 0.72]);
+  add(g, sph, skin, [0, -0.001, 0.034], [0, 0, 0], [0.026, 0.0135, 0.016]); // wrist joint blends into the palm
+  const fingers = [];
+  const LEN = [0.074, 0.081, 0.076, 0.061], RAD = [0.0088, 0.0092, 0.0086, 0.0074], X = [0.024, 0.008, -0.009, -0.025], Z = [-0.046, -0.05, -0.048, -0.043];
+  const PART = [0.46, 0.3, 0.24];
+  const capsule = (r, l) => { const c = new THREE.CapsuleGeometry(r, l, 4, 10); c.rotateX(Math.PI / 2); c.translate(0, 0, -l / 2); return c; };
+  for (let i = 0; i < 4; i++) {
+    const root = new THREE.Group(); root.position.set(X[i] * side, 0.002, Z[i]);
+    root.rotation.y = (i - 1.2) * -0.045 * side; // slight natural spread
+    g.add(root);
+    let parent = root, r = RAD[i]; const joints = [];
+    for (let k = 0; k < 3; k++) {
+      const j = new THREE.Group(); parent.add(j); joints.push(j);
+      const l = LEN[i] * PART[k];
+      add(j, capsule(r, l), skin, [0, 0, 0], [0, 0, 0], [1, 0.9, 1]);
+      if (k < 2) add(j, sph, skin, [0, 0.0015, 0], [0, 0, 0], [r * 1.12, r * 1.0, r * 1.1]); // knuckle
+      if (k === 2) add(j, new THREE.SphereGeometry(1, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), nailM, [0, r * 0.82, -l * 0.62], [0, 0, 0], [r * 0.82, r * 0.22, l * 0.42]); // nail
+      const next = new THREE.Group(); next.position.z = -l; j.add(next); parent = next;
+      r *= 0.88;
+    }
+    fingers.push(joints);
+  }
+  // thumb: metacarpal + two phalanges, set out from the side of the palm
+  const tRoot = new THREE.Group(); tRoot.position.set(0.03 * side, -0.006, 0.008); tRoot.rotation.set(0.15, 0.75 * side, -0.55 * side); g.add(tRoot);
+  const tJ = []; let tp = tRoot, tr = 0.0105;
+  for (let k = 0; k < 3; k++) {
+    const j = new THREE.Group(); tp.add(j); tJ.push(j);
+    const l = [0.038, 0.03, 0.026][k];
+    add(j, capsule(tr, l), skin, [0, 0, 0], [0, 0, 0], [1, 0.9, 1]);
+    if (k === 2) add(j, new THREE.SphereGeometry(1, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), nailM, [0, tr * 0.8, -l * 0.62], [0, 0, 0], [tr * 0.85, tr * 0.22, l * 0.42]);
+    const next = new THREE.Group(); next.position.z = -l; j.add(next); tp = next; tr *= 0.88;
+  }
+  g.userData.setCurl = (c) => {
+    // fingers roll into a fist (each joint a bit more than the last, pinky curls first)
+    fingers.forEach((js, i) => { const ci = Math.min(1, c * (1 + i * 0.06)); js[0].rotation.x = -ci * 1.35 - 0.12; js[1].rotation.x = -ci * 1.55 - 0.1; js[2].rotation.x = -ci * 0.9 - 0.06; });
+    tJ[0].rotation.x = -c * 0.35; tJ[1].rotation.x = -c * 0.55 - 0.05; tJ[2].rotation.x = -c * 0.6 - 0.05;
+    tJ[0].rotation.y = c * 0.35 * side;
+  };
+  g.userData.setSkin = (hex) => skin.color.setHex(hex);
+  g.userData.setCurl(0.15);
+  return g;
+}

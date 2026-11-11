@@ -3,7 +3,7 @@
 import * as THREE from "three";
 import { generateTextures, canvasTex } from "./textures.js";
 import { Wind } from "./sky.js";
-import { makeGlove, outfitFor } from "./avatar.js";
+import { makeHand, outfitFor } from "./avatar.js";
 import { Human, loadHumanAssets, ensureModel } from "./human.js";
 import { WEAPONS, weaponById, buildGun, GunState, makeWeaponMaterials } from "./weapons.js";
 import { buildLobby } from "./lobby.js";
@@ -86,7 +86,7 @@ for (let i = 0; i < 2; i++) {
     const side = e.data.handedness === "left" ? -1 : 1;
     hand.side = e.data.handedness;
     if (!hand.glove) {
-      hand.glove = makeGlove(gloveMat, side);
+      hand.glove = makeHand(side, handSkin(save.look));
       hand.glove.rotation.set(0.2, 0, (Math.PI / 2) * side);
       hand.glove.position.set(0, -0.01, 0.04);
       grip.add(hand.glove);
@@ -95,6 +95,12 @@ for (let i = 0; i < 2; i++) {
   });
   controller.addEventListener("disconnected", () => { if (hand.side) hands[hand.side] = null; hand.source = null; });
 }
+// first-person hands use your character's skin tone
+function handSkin(look) {
+  const o = outfitFor(look), f = look.body === "female";
+  return o.rig === "meshy" ? (f ? 0xe5c4ad : 0xc9a48e) : (f ? 0xdcb49c : 0xc49a80);
+}
+function retintHands(look) { for (const h of [hands.left, hands.right]) h?.glove?.userData.setSkin?.(handSkin(look)); }
 function pad(hand) { return hand && hand.source && hand.source.gamepad; }
 function btn(hand, i) { const g = pad(hand); return !!(g && g.buttons[i] && g.buttons[i].pressed); }
 function btnVal(hand, i) { const g = pad(hand); return g && g.buttons[i] ? g.buttons[i].value : 0; }
@@ -842,7 +848,7 @@ async function boot() {
   playerAvatar = new Human(T, save.look, { quality: 1 });
   wardrobe = new WardrobePanel(sfx, (look, committed) => {
     lobby.preview.setLook(look); lobby.preview.resetSim();
-    if (committed) { playerAvatar.setLook(look); toast("Look saved. Press V on desktop to see yourself in third person."); }
+    if (committed) { playerAvatar.setLook(look); retintHands(look); toast("Look saved. Press V on desktop to see yourself in third person."); }
   });
   wardrobe.mesh.position.set(-11.0, 1.55, -1.3); wardrobe.mesh.rotation.y = Math.PI / 2 - 0.35;
   lobby.scene.add(wardrobe.mesh);

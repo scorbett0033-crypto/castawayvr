@@ -53,13 +53,13 @@ function coinTextures() {
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const yy = Math.min(S - 1, Math.max(0, y + dy)), xx = Math.min(S - 1, Math.max(0, x + dx)); s += h[yy * S + xx]; n++; }
     blur[y * S + x] = s / n;
   }
-  const normal = new THREE.CanvasTexture(canvasFrom(heightToNormal(blur, S, S, 9), S, S));
+  const normal = new THREE.CanvasTexture(canvasFrom(heightToNormal(blur, S, S, 16), S, S));
   normal.colorSpace = THREE.NoColorSpace;
   // colour: warm polished gold, slightly deeper in the recesses (cavity), brighter on raised parts
   const col = new Uint8ClampedArray(S * S * 4);
   for (let i = 0; i < S * S; i++) {
-    const k = 0.78 + blur[i] * 0.3;
-    col[i * 4] = Math.min(255, 255 * k); col[i * 4 + 1] = Math.min(255, 196 * k); col[i * 4 + 2] = Math.min(255, 92 * k); col[i * 4 + 3] = 255;
+    const k = 0.62 + blur[i] * 0.42; // recesses darker, raised design bright
+    col[i * 4] = Math.min(255, 250 * k); col[i * 4 + 1] = Math.min(255, 172 * k); col[i * 4 + 2] = Math.min(255, 58 * k); col[i * 4 + 3] = 255;
   }
   const map = new THREE.CanvasTexture(canvasFrom(col, S, S)); map.colorSpace = THREE.SRGBColorSpace;
   // edge: fine vertical reeding
@@ -95,9 +95,9 @@ function ammoBox() {
 export class Loot {
   constructor() {
     const T = coinTextures();
-    const gold = { color: 0xffffff, metalness: 1, roughness: 0.17, envMapIntensity: 1.6 };
-    const side = new THREE.MeshStandardMaterial({ ...gold, color: 0xffcf72, normalMap: T.edgeN, normalScale: new THREE.Vector2(0.6, 0.6) });
-    const face = new THREE.MeshStandardMaterial({ ...gold, map: T.map, normalMap: T.normal, normalScale: new THREE.Vector2(1.1, 1.1) });
+    const gold = { color: 0xffffff, metalness: 1, roughness: 0.14, envMapIntensity: 2.2 };
+    const side = new THREE.MeshStandardMaterial({ ...gold, color: 0xe7a43c, normalMap: T.edgeN, normalScale: new THREE.Vector2(0.8, 0.8) });
+    const face = new THREE.MeshStandardMaterial({ ...gold, map: T.map, normalMap: T.normal, normalScale: new THREE.Vector2(1.6, 1.6) });
     this.mesh = new THREE.InstancedMesh(coinGeometry(), [side, face, face], MAX_COINS);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.castShadow = true; this.mesh.frustumCulled = false; this.mesh.count = 0;
