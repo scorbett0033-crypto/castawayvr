@@ -14,6 +14,7 @@ import { Sfx } from "./audio.js";
 import { save, persist, addCoins, trySpend, onSave } from "./save.js";
 import { ShopPanel, WardrobePanel, WristHUD, Panel, makeLaser } from "./ui.js";
 import { Loot } from "./loot.js";
+import { makeWarp } from "./warp.js";
 
 const $ = (id) => document.getElementById(id);
 const loadBar = $("loadbar"), loadTxt = $("loadtxt");
@@ -603,7 +604,11 @@ const lookM = new THREE.Matrix4();
 function frame() {
   const dt = Math.min(clock.getDelta(), 1 / 20);
   const t = clock.elapsedTime;
-  if (mode === "loading") { renderer.render(loadScene, camera); return; }
+  if (mode === "loading" || warpActive) {
+    warp.setProgress((parseFloat(loadBar.style.width) || 0) / 100);
+    warp.update(dt, t, camera.getWorldPosition(tmpV));
+    renderer.render(loadScene, camera); return;
+  }
   const xr = renderer.xr.isPresenting;
   const R = hands.right, L = hands.left;
 
@@ -818,7 +823,10 @@ function frame() {
 
 /* ================= boot ================= */
 const loadScene = new THREE.Scene();
-loadScene.background = new THREE.Color(0x0b0d10);
+loadScene.background = new THREE.Color(0x000000);
+const warp = makeWarp();
+loadScene.add(warp.mesh);
+let warpActive = true;
 renderer.setAnimationLoop(frame);
 
 async function boot() {
@@ -902,8 +910,11 @@ async function boot() {
   waste.scene.add(gun); renderer.compile(waste.scene, camera); waste.scene.remove(gun);
   renderer.compile(lobby.scene, camera);
   enterLobby("Welcome to Nova Hub. Sit, shop, dress up — then stake coins at the blue portal.");
-  loadBar.style.width = "100%";
-  $("loading").style.display = "none";
+  loadBar.style.width = "100%"; loadTxt.textContent = "Entering…";
+  // rush through the warp into a white flash, then fade into the hub
+  await new Promise((res) => warp.finish(res));
+  warpActive = false;
+  const ld = $("loading"); ld.classList.add("flashout"); setTimeout(() => (ld.style.display = "none"), 900);
   initVR();
 }
 
