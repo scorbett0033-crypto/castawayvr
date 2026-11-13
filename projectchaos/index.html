@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>PROJECT CHAOS</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #07090c; font-family: "Segoe UI", system-ui, -apple-system, sans-serif; color: #e9eef2; }
+  canvas { display: block; }
+  #overlay {
+    position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+    background: radial-gradient(ellipse at 50% 35%, rgba(255,120,30,0.16), rgba(7,9,12,0.94) 60%), repeating-linear-gradient(-45deg, rgba(255,170,0,0.035) 0 16px, transparent 16px 32px);
+    padding: 24px; box-sizing: border-box; text-align: center; z-index: 5;
+  }
+  #overlay.hidden { display: none; }
+  h1 { margin: 0; font-size: clamp(34px, 7vw, 72px); letter-spacing: 0.18em; font-weight: 900; color: #fff; text-shadow: 0 0 24px rgba(255,140,40,0.55); }
+  h1 span { color: #ff8a1f; }
+  .tag { margin: -6px 0 0; color: #9fb0bd; letter-spacing: 0.3em; font-size: 12px; text-transform: uppercase; }
+  #bar { width: min(420px, 80vw); height: 6px; background: #1b222a; border-radius: 3px; overflow: hidden; }
+  #bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #ff8a1f, #ffd34d); transition: width .15s; }
+  #status { font-size: 12px; color: #7d8b96; min-height: 16px; }
+  .btns { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+  button { padding: 14px 28px; font-size: 16px; font-weight: 700; letter-spacing: 0.08em; border-radius: 6px; border: 2px solid #ff8a1f; cursor: pointer; background: #ff8a1f; color: #120a02; text-transform: uppercase; }
+  button.ghost { background: transparent; color: #ffb066; }
+  button:disabled { opacity: 0.35; cursor: not-allowed; }
+  .help { max-width: 760px; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; text-align: left; font-size: 12.5px; line-height: 1.55; color: #b4c1cb; }
+  .help div { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07); border-radius: 6px; padding: 10px 12px; }
+  .help b { color: #ffb066; display: block; margin-bottom: 4px; letter-spacing: 0.06em; }
+  #crosshair { position: fixed; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: rgba(255,255,255,0.8); box-shadow: 0 0 0 2px rgba(0,0,0,0.4); display: none; pointer-events: none; z-index: 3; }
+  #dhud { position: fixed; left: 12px; bottom: 12px; font-size: 12px; color: #c9d4dc; background: rgba(0,0,0,0.45); padding: 8px 10px; border-radius: 6px; display: none; line-height: 1.5; pointer-events: none; z-index: 3; }
+</style>
+</head>
+<body>
+<div id="overlay">
+  <h1>PROJECT <span>CHAOS</span></h1>
+  <p class="tag">Physics Research Division · Sublevel 7</p>
+  <div id="bar"><i></i></div>
+  <div id="status">Booting…</div>
+  <div class="btns">
+    <button id="vrBtn" disabled>Enter VR</button>
+    <button id="deskBtn" class="ghost" disabled>Play on desktop</button>
+  </div>
+  <div class="help">
+    <div><b>GRAB &amp; THROW</b>Grip to grab anything near your hand. Point at far objects and hold grip to pull them in. Release while swinging to throw. Use both hands on heavy things.</div>
+    <div><b>MOVE</b>Left stick moves (click to sprint). Right stick turns. Push a stick forward in teleport mode to aim. Right B jumps.</div>
+    <div><b>WEAPONS &amp; TOOLS</b>Trigger fires or uses. A / X ejects the magazine. Reach to your hip and grip to take a fresh one, then push it into the grip. Rack the toy pistol's slide with your other hand.</div>
+    <div><b>MENU</b>Y opens the wrist menu (settings, spawner, challenges, travel). Point with your right hand and pull the trigger to choose.</div>
+  </div>
+</div>
+<div id="crosshair"></div>
+<div id="dhud">WASD move · Mouse look · Space jump · Shift sprint<br/>RMB grab / hold · release RMB to drop · Q throw · LMB fire / use / press<br/>R reload · F alt action · Wheel push / pull held item · Tab menu · Esc release mouse</div>
+<script type="importmap">
+{ "imports": { "three": "./js/vendor/three.module.js", "rapier": "./js/vendor/rapier.es.js" } }
+</script>
+<script type="module" src="./js/main.js"></script>
+</body>
+</html>
